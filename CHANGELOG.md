@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.2 - 2026-08-22
+
 ### Fixed
 - `mdw.swapPackage` now re-runs the swapped package's `onReady` once the new
   copy is in, so a package cannot come back from an update with its prompt bar
