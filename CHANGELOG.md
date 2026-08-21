@@ -10,6 +10,15 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- `mdw.swapPackage` now re-runs the swapped package's `onReady` once the new
+  copy is in, so a package cannot come back from an update with its prompt bar
+  and no widgets. The hazard is MDW's own: consumer creations are reaped by
+  ownership stamp, and the old copy and the new one share that stamp, so
+  removal bookkeeping landing after the install takes the new copy's widgets
+  with it. `onReady` is idempotent by contract, so this repairs a half-built UI
+  and costs nothing when there is nothing to repair.
+
 ## 0.6.1 - 2026-08-22
 
 ### Changed

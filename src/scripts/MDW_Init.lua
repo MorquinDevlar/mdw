@@ -1744,6 +1744,22 @@ function mdw.swapPackage(name, path)
   if not installPackage(path) then
     return false, "Mudlet refused the install"
   end
+  -- The new copy's scripts ran during that install and late-joined, so its UI
+  -- should already be whole. Re-assert it anyway, because the hazard here is
+  -- MDW's own: everything a consumer creates is reaped by OWNERSHIP STAMP, and
+  -- the old copy and the new one share that stamp - so any bookkeeping from the
+  -- removal that lands after the install takes the NEW copy's creations with
+  -- it. A live client came back from a swap with its prompt bar and no widgets
+  -- for exactly that reason.
+  --
+  -- onReady callbacks are required to be idempotent (the consumer contract
+  -- says so, because MDW re-runs them on every setup), so running one again
+  -- repairs a half-built UI and costs nothing when there is nothing to repair.
+  local entry = mdw.gamePackages and mdw.gamePackages[name]
+  local owner = (type(entry) == "string" and entry) or name
+  if mdw.isSetUp and mdw.onReady and mdw.onReady[owner] then
+    mdw.runReadyCallbacks(owner)
+  end
   return true
 end
 

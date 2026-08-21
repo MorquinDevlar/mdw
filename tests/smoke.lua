@@ -215,8 +215,13 @@ function uninstallPackage(name)
 end
 INSTALLED = {}
 INSTALL_REFUSES = false -- set to model Mudlet declining the install
+INSTALL_SCRIPTS = nil -- a test supplies what the package's scripts would do
 function installPackage(path)
   INSTALLED[#INSTALLED + 1] = path
+  -- Real Mudlet RUNS a package's scripts as part of installing it, before this
+  -- returns - which is how a consumer re-seeds its onReady and late-joins.
+  -- Recording only the call meant the suite never saw that half.
+  if INSTALL_SCRIPTS then INSTALL_SCRIPTS(path) end
   return not INSTALL_REFUSES
 end
 local function cbSet(kind)
@@ -1014,6 +1019,25 @@ check(UNINSTALLED[#UNINSTALLED] == "SwapGameUI" and #UNINSTALLED == uninstallsBe
   "it uninstalls the named package")
 check(INSTALLED[#INSTALLED] == swapFile and #INSTALLED == installsBeforeSwap + 1,
   "and installs the replacement, in the same call - no timer, nothing to wait for")
+-- The hazard is MDW's own: consumer creations are reaped by ownership STAMP,
+-- and the old copy and the new one share it - so removal bookkeeping that
+-- lands after the install takes the new copy's widgets with it. A live client
+-- came back from a swap with its prompt bar and nothing else. onReady is
+-- idempotent by contract, so the swap re-asserts it.
+local rebuilt = 0
+-- The uninstall reaps the owner's registrations; the package's own scripts
+-- re-seed them as it installs, which is what this models.
+INSTALL_SCRIPTS = function()
+  mdw.gamePackages["SwapGameUI"] = true
+  mdw.onReady["SwapGameUI"] = function() rebuilt = rebuilt + 1 end
+end
+mdw.gamePackages["SwapGameUI"] = true
+mdw.onReady["SwapGameUI"] = function() rebuilt = rebuilt + 1 end
+mdw.swapPackage("SwapGameUI", swapFile)
+check(rebuilt == 1, "a swap re-runs the owner's ready callback, so a reaped UI comes back")
+INSTALL_SCRIPTS = nil
+mdw.onReady["SwapGameUI"] = nil
+mdw.gamePackages["SwapGameUI"] = nil
 -- The point of doing this from outside: a refusal is KNOWN, not discovered
 -- twenty seconds later by a watchdog.
 INSTALL_REFUSES = true
@@ -1024,13 +1048,14 @@ check(swapOk == false and swapWhy:find("refused", 1, true) ~= nil,
 INSTALL_REFUSES = false
 os.remove(swapFile)
 -- Guards. Swapping MDW itself is the very self-swap this exists to avoid.
+local uninstallsBeforeGuards = #UNINSTALLED
 swapOk, swapWhy = mdw.swapPackage(mdw.packageName, "/nonexistent")
 check(swapOk == false and swapWhy:find("itself", 1, true) ~= nil,
   "swapPackage refuses to swap MDW itself")
 swapOk, swapWhy = mdw.swapPackage("SwapGameUI", "/nonexistent/nope.mpackage")
 check(swapOk == false and swapWhy:find("readable", 1, true) ~= nil,
   "and refuses a file it cannot read, before anything is uninstalled")
-check(#UNINSTALLED == uninstallsBeforeSwap + 2,
+check(#UNINSTALLED == uninstallsBeforeGuards,
   "neither guard uninstalled anything")
 
 -- 7b. Floating-group border resize must reflow the active member on release

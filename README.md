@@ -551,6 +551,13 @@ Everything the uninstall reaper does still applies: your creations are reaped
 by ownership stamp inside the uninstall, and your reinstall re-seeds its
 registrations and late-joins as usual.
 
+The swap also re-runs your `onReady` once the new copy is in. That is not
+belt-and-braces: the old copy and the new one share an ownership stamp, so
+removal bookkeeping that lands *after* the install reaps the new copy's
+widgets - a package can come back with its prompt bar and nothing else. Your
+`onReady` is required to be idempotent anyway (MDW re-runs it on every setup),
+so this repairs a half-built UI and costs nothing when there is none.
+
 ### Scripted Control
 
 Everything the header menus and the mouse can do, a script can do by name -
