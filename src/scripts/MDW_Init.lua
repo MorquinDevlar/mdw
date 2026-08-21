@@ -145,7 +145,7 @@ function mdw.createPromptBar(winW)
   }, mdw.promptBarContainer))
   mdw.promptBar:setColor(bgRGB[1], bgRGB[2], bgRGB[3], 255)
   local promptSize = mdw.getPromptEffectiveFontSize()
-  mdw.promptBar:setFont(cfg.fontFamily)
+  mdw.promptBar:setFont(mdw.activeFontFamily())
   mdw.promptBar:setFontSize(promptSize)
   mdw.promptBar:setWrap(mdw.calculateWrap(consoleWidth, promptSize))
   setBgColor("MDW_PromptBar", bgRGB[1], bgRGB[2], bgRGB[3])
@@ -484,7 +484,7 @@ function mdw.createBar(opts)
     -- A custom-css bar shows its own background through a transparent
     -- console; the default bar matches the widget background exactly.
     bar.console:setColor(bgRGB[1], bgRGB[2], bgRGB[3], bar.css and 0 or 255)
-    bar.console:setFont(cfg.fontFamily)
+    bar.console:setFont(mdw.activeFontFamily())
     bar.console:setFontSize(cfg.contentFontSize)
     -- On Mudlet 4.19- a recycled same-named console may hold old content.
     bar.console:clear()
@@ -901,7 +901,7 @@ end
 function mdw.ensurePromptBarHeight(lines)
   local cfg = mdw.config
   local promptSize = mdw.getPromptEffectiveFontSize()
-  local _, charHeight = calcFontSize(promptSize, cfg.fontFamily)
+  local _, charHeight = calcFontSize(promptSize, mdw.activeFontFamily())
   if charHeight and charHeight > 0 then
     local minHeight = charHeight * math.max(1, lines or 1)
       + cfg.promptBarTopPadding + cfg.separatorHeight
@@ -921,7 +921,7 @@ end
 function mdw.fitPromptBarHeight(lines)
   local cfg = mdw.config
   local promptSize = mdw.getPromptEffectiveFontSize()
-  local _, charHeight = calcFontSize(promptSize, cfg.fontFamily)
+  local _, charHeight = calcFontSize(promptSize, mdw.activeFontFamily())
   if not (charHeight and charHeight > 0) then return end
   lines = math.max(0, lines or 1)
   local rowHeight = mdw.promptGaugeRowHeight()
@@ -960,7 +960,9 @@ function mdw.saveLayout()
       menuFontSize = mdw.config.headerMenuFontSize,
       tabFontSize = mdw.config.tabFontSize,
       theme = mdw.config.theme,
+      fontFamily = mdw.config.fontFamily,
       originalMainFontSize = mdw.config.originalMainFontSize,
+      originalMainFont = mdw.config.originalMainFont,
     },
     widgets = {},
     -- Game-package settings ride along verbatim (consumer contract).
@@ -1085,8 +1087,16 @@ function mdw.loadLayout()
     if layout.docks.theme and mdw.themes[layout.docks.theme] then
       mdw.config.theme = layout.docks.theme
     end
+    -- The saved family is the PREFERENCE; setup's validation decides what
+    -- actually renders, so a font missing today must not be dropped here.
+    if type(layout.docks.fontFamily) == "string" and layout.docks.fontFamily ~= "" then
+      mdw.config.fontFamily = layout.docks.fontFamily
+    end
     if layout.docks.originalMainFontSize then
       mdw.config.originalMainFontSize = layout.docks.originalMainFontSize
+    end
+    if layout.docks.originalMainFont then
+      mdw.config.originalMainFont = layout.docks.originalMainFont
     end
   end
 
@@ -1137,7 +1147,8 @@ function mdw.resetLayout(opts)
   -- re-merge (a game's chosen theme is a default, not a user choice, so it
   -- returns too), loadLayout finds no file so the values above stand, and
   -- per-widget fontAdjust resets because pendingLayouts is empty.
-  -- originalMainFontSize is NOT reset - it is the uninstall restore value.
+  -- originalMainFontSize and originalMainFont are NOT reset - they are the
+  -- uninstall restore values.
   mdw.setup()
   mdw.saveLayout()
   return true, "ok"
@@ -1306,6 +1317,67 @@ end
 -- Handles setup, teardown, and Mudlet events.
 ---------------------------------------------------------------------------
 
+--- Resolve the preferred family into the one MDW renders. If the preferred
+-- font is not loaded, Qt would substitute silently while calcFontSize keeps
+-- answering for the requested name - wrap widths and tab sizing would drift -
+-- so fall back to Mudlet's bundled monospace. Writes ONLY effectiveFontFamily:
+-- the preference survives, so a font that disappears (a game package's
+-- self-update unloads its fonts for a tick) comes back by itself. Guarded:
+-- getAvailableFonts may be absent or differently-shaped across versions.
+-- @return effective, changed
+function mdw.validateFontFamily()
+  local cfg = mdw.config
+  local want = cfg.fontFamily
+  local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
+  local effective = want
+  if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[want] then
+    effective = "Bitstream Vera Sans Mono"
+  end
+  local changed = (effective ~= cfg.effectiveFontFamily)
+  cfg.effectiveFontFamily = effective
+  return effective, changed
+end
+
+--- Apply the effective family to the MAIN console - only when a game package
+-- opted in (applyMainFont): choosing the player's console face is a UI
+-- decision, not a framework one. Captures the player's own family the first
+-- time MDW touches it (persisted for the full uninstall to restore), then
+-- confirms with getFont: setFont can return true while Qt renders a
+-- substitute, and getFont reports the family Qt actually resolved to.
+function mdw.applyMainFont()
+  local cfg = mdw.config
+  if not cfg.applyMainFont then return end
+  local family = mdw.activeFontFamily()
+
+  if cfg.originalMainFont == nil then
+    local ok, current = pcall(function() return getFont and getFont("main") end)
+    if ok and type(current) == "string" and current ~= "" then
+      cfg.originalMainFont = current
+    end
+  end
+
+  pcall(setFont, "main", family)
+  local ok, applied = pcall(function() return getFont and getFont("main") end)
+  if ok and type(applied) == "string" and applied ~= family then
+    mdw.debugEcho("Main console font is '%s', not the requested '%s'", applied, family)
+  end
+end
+
+--- Another package came or went: it may ship the preferred font. Re-resolve
+-- against what is loaded NOW and re-apply only if the effective family
+-- changed. Silent on purpose (the setup-time echo is enough) and a no-op
+-- once torn down, because the uninstall path is deferred - Mudlet raises
+-- sysUninstallPackage BEFORE it unloads that package's fonts, so a
+-- synchronous check there would still see the font.
+function mdw.revalidateFontFamily()
+  if not mdw.isSetUp then return end
+  local _, changed = mdw.validateFontFamily()
+  if changed then
+    mdw.applyFontFamily()
+    mdw.applyMainFont()
+  end
+end
+
 function mdw.setup()
   -- Idempotent: never build a second UI on top of an existing one. Guards
   -- against a package update that deferred teardown, or a double profile-load.
@@ -1328,18 +1400,15 @@ function mdw.setup()
   -- Load saved layout first (sets dock widths, theme, and pendingLayouts)
   mdw.loadLayout()
 
-  -- If the configured font is missing on this machine, Qt substitutes another
-  -- silently while calcFontSize keeps answering for the requested name - wrap
-  -- widths and tab sizing would drift from what actually renders. Fall back to
-  -- Mudlet's bundled monospace instead. Guarded: getAvailableFonts may be
-  -- absent or differently-shaped across Mudlet versions.
-  local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
-  if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[mdw.config.fontFamily] then
+  -- Resolve the font family before anything renders. Only setup announces a
+  -- fallback: the event-driven re-validation is silent.
+  local effectiveFont = mdw.validateFontFamily()
+  if effectiveFont ~= mdw.config.fontFamily then
     mdw.echo("Font '" .. mdw.config.fontFamily .. "' not installed; using Bitstream Vera Sans Mono")
-    mdw.config.fontFamily = "Bitstream Vera Sans Mono"
   end
 
-  -- Rebuild styles with loaded theme before creating any UI elements
+  -- Rebuild styles with loaded theme (and the validated family) before
+  -- creating any UI elements
   mdw.buildStyles()
 
   -- Capture the user's original main console font once (before we change it),
@@ -1352,6 +1421,7 @@ function mdw.setup()
 
   -- Apply main console font size and background color
   setFontSize(mdw.config.mainFontSize)
+  mdw.applyMainFont()
   mdw.applyMainBackground()
 
   mdw.notify("Building widgets")
@@ -1495,13 +1565,24 @@ function mdw.configure(opts)
   for k, v in pairs(opts) do
     if k == "widgets" and type(v) == "function" then
       mdw.registerWidgets(v)
-    else
+    elseif k ~= "fontFamily" then
+      -- fontFamily is applied below, through its setter
       mdw.config[k] = v
     end
   end
-  -- If the UI is already up, re-apply the settings that can change live.
+  -- If the UI is already up, re-apply the settings that can change live. A
+  -- game package installed mid-session cannot use the mdw.gameConfig seed
+  -- (that merges during setup only), so configure is its late-join path and
+  -- must apply live rather than wait for the next rebuild.
   if mdw.isSetUp then
     mdw.applyPromptTrigger()
+    if opts.applyMainFont ~= nil then mdw.applyMainFont() end
+    -- After the loop, so a family change validates and renders against the
+    -- other keys this same call just landed.
+    if opts.fontFamily ~= nil then mdw.setFontFamily(opts.fontFamily) end
+  elseif opts.fontFamily ~= nil then
+    -- Pre-setup: store the preference bare; setup() validates and applies it.
+    mdw.config.fontFamily = opts.fontFamily
   end
   return mdw
 end
@@ -1553,7 +1634,11 @@ end
 -- Why: Called by Mudlet when package is installed or updated.
 -- Sets up the UI after successful installation.
 function mdw.onInstall(_, package)
-  if package ~= mdw.packageName then return end
+  if package ~= mdw.packageName then
+    -- A foreign package may ship the font MDW prefers.
+    mdw.revalidateFontFamily()
+    return
+  end
 
   if mdw.isUpdating then
     mdw.isUpdating = false
@@ -1641,6 +1726,9 @@ function mdw.onUninstall(_, package)
       end
       mdw.gamePackages[package] = nil
     end
+    -- Deferred: Mudlet raises this BEFORE unloading the package's fonts, so a
+    -- check right here would still see a font that is about to go away.
+    tempTimer(0, function() mdw.revalidateFontFamily() end)
     return
   end
 

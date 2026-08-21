@@ -85,7 +85,7 @@ end
 function Element:raise() H.raised[#H.raised + 1] = self.name end
 function Element:setStyleSheet(css) self._css = css end
 function Element:setFontSize(s) self._fontSize = s end
-function Element:setFont(f) end
+function Element:setFont(f) self._font = f end
 function Element:setAlignment(a) self._align = a end
 function Element:setColor() end
 function Element:setWrap(w) self._wrap = w end
@@ -160,7 +160,17 @@ function getMudletHomeDir() return HOME end
 function calcFontSize(size) return size * 0.6, size * 1.2 end
 function getFontSize() return 11 end
 function setFontSize() end
-function getAvailableFonts() return { ["JetBrains Mono NL"] = true, ["Bitstream Vera Sans Mono"] = true } end
+-- Loaded fonts are mutable: a package install/uninstall changes what Qt has,
+-- which is what the family re-validation reacts to.
+H.fonts = { ["Fira Code"] = true, ["Bitstream Vera Sans Mono"] = true }
+function getAvailableFonts() return H.fonts end
+H.windowFont = { main = "Bitstream Vera Sans Mono" }
+function setFont(win, name)
+  if not H.fonts[name] then return nil, "font '" .. tostring(name) .. "' is not available" end
+  H.windowFont[win or "main"] = name
+  return true
+end
+function getFont(win) return H.windowFont[win or "main"] end
 H.borders = { top = 0, bottom = 0, left = 0, right = 0 }
 function setBorderLeft(v) H.borders.left = v end
 function setBorderRight(v) H.borders.right = v end
@@ -380,6 +390,16 @@ local mfileFh = assert(io.open("mfile"))
 local mfileVersion = mfileFh:read("*a"):match('"version"%s*:%s*"([^"]+)"')
 mfileFh:close()
 check(mdw.version == mfileVersion, "mdw.version matches the mfile version")
+
+-- 1f. Font family: the preference renders as-is while it is installed, and
+-- the effective family (what every renderer and measurer reads) mirrors it.
+check(mdw.config.fontFamily == "Bitstream Vera Sans Mono",
+  "the default family is Mudlet's bundled monospace")
+check(mdw.config.effectiveFontFamily == mdw.config.fontFamily,
+  "setup resolved the effective family from the preference")
+local preferredFont, renderedFont = mdw.getFontFamily()
+check(preferredFont == "Bitstream Vera Sans Mono" and renderedFont == preferredFont,
+  "getFontFamily reports preferred and effective")
 
 -- 2. Menus: exclusivity, close-all, per-open rebuilds
 mdw.toggleMenu("layout")
@@ -1181,6 +1201,53 @@ check(fontSizes.main == 13 and fontSizes.menu == 14 and fontSizes.header == 10
 check(fontSizes.widgets[kbGroupName] == nil, "getFontSizes lists widgets, not groups")
 check(not mdw.menus.layout, "no setter opened the layout menu")
 
+-- 10k. Font family: a set-semantics setter like the sizes. An unknown font is
+-- refused rather than applied (Qt would substitute it silently while the
+-- layout arithmetic kept measuring the requested one).
+check(select(2, mdw.setFontFamily("No Such Font")) == "invalid", "an uninstalled font is refused")
+check(mdw.config.fontFamily == "Bitstream Vera Sans Mono", "and the preference is left alone")
+local famOk, famCode = mdw.setFontFamily("Fira Code")
+check(famOk and famCode == "ok", "setFontFamily applies an installed font")
+check(select(2, mdw.setFontFamily("Fira Code")) == "already", "setting the live family reports already")
+check(mdw.widgets["KeyAlpha"].content._font == "Fira Code" and mdw.promptBar._font == "Fira Code",
+  "the family reached the widget consoles and the prompt bar")
+check(not mdw.menus.layout, "the family setter opened no menu")
+local savedDocks = {}
+table.load(HOME .. "/mdw_layout.lua", savedDocks)
+check(savedDocks.docks.fontFamily == "Fira Code", "the family is persisted in the layout file")
+
+-- 10l. The lifetime trap: the package shipping the font unloads it for a tick
+-- while it self-updates. The fallback must render WITHOUT overwriting the
+-- preference - a save in that window would lose the player's font for good -
+-- and the font must come back by itself once the package is back.
+H.fonts["Fira Code"] = nil
+raiseEvent("sysUninstallPackage", "SomeOtherGame")
+flushTimers() -- the re-check is deferred: Mudlet unloads the fonts after the event
+check(mdw.config.effectiveFontFamily == "Bitstream Vera Sans Mono",
+  "a font that unloaded falls back for the session")
+check(mdw.config.fontFamily == "Fira Code", "but the preference survives the fallback")
+mdw.saveLayout()
+savedDocks = {}
+table.load(HOME .. "/mdw_layout.lua", savedDocks)
+check(savedDocks.docks.fontFamily == "Fira Code", "and a save in that window still names it")
+H.fonts["Fira Code"] = true
+raiseEvent("sysInstallPackage", "SomeOtherGame")
+check(mdw.config.effectiveFontFamily == "Fira Code", "the font returns with the package that ships it")
+check(mdw.widgets["KeyAlpha"].content._font == "Fira Code", "and the consoles re-render in it")
+
+-- 10m. The MAIN console is opt-in: MDW never touches its family until a game
+-- package asks, and configure is that package's late-join path.
+check(H.windowFont.main == "Bitstream Vera Sans Mono",
+  "the main console keeps its own family while the opt-in is off")
+mdw.configure({ applyMainFont = true })
+check(H.windowFont.main == mdw.activeFontFamily(), "opting in applies the family to the main console")
+check(mdw.config.originalMainFont == "Bitstream Vera Sans Mono",
+  "and captures the player's own family first, for the uninstall restore")
+mdw.configure({ fontFamily = "Bitstream Vera Sans Mono" })
+check(mdw.config.effectiveFontFamily == "Bitstream Vera Sans Mono"
+  and H.windowFont.main == "Bitstream Vera Sans Mono",
+  "configure routes a live family change through the setter")
+
 -- 10g. Scroll and read: the right console for plain, tabbed, and grouped names
 local scrollOk = mdw.scrollWidget("KeyAlpha", "up", 5)
 local lastScroll = H.scrolls[#H.scrolls]
@@ -1276,6 +1343,7 @@ check(mdw.visibility.promptBar and select(2, mdw.setPromptBarVisible(true)) == "
 
 -- 10j. resetLayout: factory defaults back, UI rebuilt, game settings kept
 mdw.gameSettings.KeyGame = { bound = true }
+mdw.setFontFamily("Fira Code")
 check(mdw.config.leftDockWidth ~= mdw.layoutDefaults.leftDockWidth, "widths differ from the defaults")
 check(mdw.resetLayout(), "resetLayout runs")
 flushTimers()
@@ -1284,6 +1352,9 @@ check(mdw.config.leftDockWidth == mdw.layoutDefaults.leftDockWidth
   and mdw.config.mainFontSize == mdw.layoutDefaults.mainFontSize
   and mdw.config.tabFontSize == mdw.layoutDefaults.tabFontSize,
   "persisted layout keys are back at their defaults")
+check(mdw.config.fontFamily == mdw.layoutDefaults.fontFamily
+  and mdw.config.effectiveFontFamily == mdw.layoutDefaults.fontFamily,
+  "the font family is persisted too, so a reset restores it")
 check(mdw.config.theme == "emerald",
   "gameConfig defaults re-merge on the rebuild (the game's theme, not the user's)")
 check(mdw.visibility.leftSidebar and mdw.visibility.rightSidebar and mdw.visibility.promptBar,
@@ -1299,7 +1370,11 @@ check(mdw.gameSettings.KeyGame == nil, "keepGameSettings = false wipes them")
 -- 11. Full uninstall restores and clears, and takes registered game
 -- packages down FIRST (their handlers may still need live MDW APIs).
 local teardownsBefore = TEARDOWN_RUNS
+mdw.setFontFamily("Fira Code")
+check(H.windowFont.main == "Fira Code", "the main console follows the family while opted in")
 mdw.uninstall()
+check(H.windowFont.main == "Bitstream Vera Sans Mono",
+  "uninstall restores the player's own main console font")
 check(not mdw.isSetUp, "uninstall tears down")
 check(TEARDOWN_RUNS > teardownsBefore, "onTeardown callbacks ran during uninstall")
 check(not io.exists(HOME .. "/mdw_layout.lua"), "uninstall removed the layout file")

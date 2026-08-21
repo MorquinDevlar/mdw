@@ -74,7 +74,7 @@ function mdw.createWidget(widget, x, y)
   }, widget.container))
   local fgRGB = cfg.widgetForegroundRGB
   widget.content:setColor(bgRGB[1], bgRGB[2], bgRGB[3], 255)
-  widget.content:setFont(cfg.fontFamily)
+  widget.content:setFont(mdw.activeFontFamily())
   widget.content:setFontSize(cfg.contentFontSize)
   widget.content:setWrap(mdw.calculateWrap(contentWidth))
   -- Set default text colors so echo() matches the background

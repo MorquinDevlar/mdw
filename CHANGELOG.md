@@ -10,6 +10,15 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.setFontFamily(name)` / `mdw.getFontFamily()`: set the font family every MDW surface renders in from a script or a game package's own command. The name is validated against the fonts Mudlet has loaded, so an unknown one is refused (`"invalid"`, with the name as detail) instead of silently substituted by Qt; `"already"` when it is the live family, `"ok"` otherwise. `mdw.getFontFamily()` returns the preferred and the currently rendering family.
+- `mdw.config.applyMainFont` (default false): opt in and MDW renders the MAIN Mudlet console in the same family. The player's own family is captured the first time MDW applies one and restored by a full uninstall, alongside their original main-console font size.
+- The font family now persists in the layout file, and `mdw.resetLayout` restores it with the other saved settings.
+- A font that is not installed - or that unloads for a moment while the package shipping it updates itself - falls back to Bitstream Vera Sans Mono for the session without overwriting the saved choice, and is picked back up as soon as it is available again.
+
+### Changed
+- `fontFamily` defaults to Bitstream Vera Sans Mono (Mudlet's bundled monospace) instead of JetBrains Mono NL, which MDW never shipped - a plain install no longer logs a "font not installed" fallback. Game packages seed their own face via `mdw.gameConfig.fontFamily` and ship the font file.
+
 ## 0.4.1 - 2026-08-21
 
 ### Added

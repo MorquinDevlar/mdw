@@ -195,7 +195,7 @@ function mdw.createTabbedWidgetInternal(widget, x, y)
     }, widget.container))
     local fgRGB = cfg.widgetForegroundRGB
     tabConsole:setColor(bgRGB[1], bgRGB[2], bgRGB[3], 255)
-    tabConsole:setFont(cfg.fontFamily)
+    tabConsole:setFont(mdw.activeFontFamily())
     tabConsole:setFontSize(cfg.contentFontSize)
     tabConsole:setWrap(mdw.calculateWrap(consoleWidth))
     setBgColor(consoleName, bgRGB[1], bgRGB[2], bgRGB[3])

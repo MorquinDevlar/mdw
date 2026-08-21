@@ -596,7 +596,7 @@ function mdw.rebuildLayoutMenu()
       font-family: '%s';
       font-size: %dpx;
     }
-  ]], cfg.fontFamily, cfg.headerMenuFontSize)
+  ]], mdw.activeFontFamily(), cfg.headerMenuFontSize)
 
   local valueStyle = string.format([[
     QLabel {
@@ -605,7 +605,7 @@ function mdw.rebuildLayoutMenu()
       font-size: %dpx;
       qproperty-alignment: 'AlignCenter';
     }
-  ]], cfg.fontFamily, cfg.headerMenuFontSize)
+  ]], mdw.activeFontFamily(), cfg.headerMenuFontSize)
 
   -- Helper to create one font size row with - [value] + buttons
   local function createFontRow(rowIndex, labelText, displayValue, prefix, onMinus, onPlus)
@@ -958,6 +958,18 @@ function mdw.uninstall()
   if mdw.config.originalMainFontSize then
     setFontSize(mdw.config.originalMainFontSize)
   end
+  -- Only set when MDW actually applied a family to the main console. If that
+  -- family is gone since (the package shipping it was removed too), Qt would
+  -- substitute it silently - hand the player Mudlet's bundled monospace
+  -- instead, so either way they are left on a real monospace font.
+  if mdw.config.originalMainFont then
+    local restore = mdw.config.originalMainFont
+    local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
+    if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[restore] then
+      restore = "Bitstream Vera Sans Mono"
+    end
+    pcall(setFont, "main", restore)
+  end
   setBackgroundColor("main", 0, 0, 0)
 
   -- Delete the saved layout so no MDW settings persist
@@ -1154,13 +1166,13 @@ function mdw.showContextMenu(title, items, x, y)
 end
 
 ---------------------------------------------------------------------------
--- FONT SIZES
--- Two layers, deliberately: mdw.set*FontSize are plain set-semantics
--- functions (clamp, apply, save, return the applied size) that a keyboard
--- command or any script can call, and the adjust* wrappers below are the Font
--- Size menu's +/- click handlers, which additionally re-open the menu so the
--- displayed value updates. Menu side effects live only in this menu layer -
--- a setter must never open a menu.
+-- FONTS
+-- Two layers, deliberately: mdw.set*FontSize and mdw.setFontFamily are plain
+-- set-semantics functions (clamp/validate, apply, save, return the result)
+-- that a keyboard command or any script can call, and the adjust* wrappers
+-- below are the Font Size menu's +/- click handlers, which additionally
+-- re-open the menu so the displayed value updates. Menu side effects live
+-- only in this menu layer - a setter must never open a menu.
 ---------------------------------------------------------------------------
 
 --- Set the main Mudlet console font size. @return the applied size
@@ -1174,6 +1186,40 @@ function mdw.setMainFontSize(size)
 
   mdw.saveLayout()
   return newSize
+end
+
+--- Set the font family for every MDW surface. Validated against the fonts
+-- Mudlet has loaded: an unknown name is refused rather than applied, because
+-- Qt would substitute silently while the layout arithmetic measured the
+-- requested one. No menu exposes this on purpose - Mudlet's Lua API cannot
+-- tell a monospace family from a proportional one, and MDW's column math is
+-- meaningless in the latter; a game package offers it in its own command.
+-- @return ok, code[, detail]  -- "ok" | "already" | "invalid" (detail = name)
+function mdw.setFontFamily(name)
+  local cfg = mdw.config
+  if type(name) ~= "string" or name == "" then return false, "invalid" end
+  if name == cfg.fontFamily and cfg.effectiveFontFamily == name then
+    return true, "already"
+  end
+
+  -- Same shape as validateFontFamily: an absent or odd getAvailableFonts is
+  -- no reason to refuse a name the player asked for.
+  local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
+  if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[name] then
+    return false, "invalid", name
+  end
+
+  cfg.fontFamily = name
+  mdw.validateFontFamily()
+  mdw.applyFontFamily()
+  mdw.applyMainFont()
+  mdw.saveLayout()
+  return true, "ok"
+end
+
+--- @return the PREFERRED family, and the EFFECTIVE one actually rendering.
+function mdw.getFontFamily()
+  return mdw.config.fontFamily, mdw.activeFontFamily()
 end
 
 --- Set the prompt bar's EFFECTIVE font size (stored as an offset from the

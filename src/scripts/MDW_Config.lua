@@ -243,7 +243,14 @@ mdw.config = {
   widgetForegroundRGB = { 200, 200, 200 },
 
   -- Typography
-  fontFamily = "JetBrains Mono NL",
+  -- Mudlet's bundled monospace: always available, so a plain MDW install never
+  -- trips the availability fallback. MDW ships no font of its own - a game
+  -- package seeds its face via mdw.gameConfig.fontFamily and ships the file.
+  fontFamily = "Bitstream Vera Sans Mono",
+  -- Opt-in: MDW never touches the MAIN console's family on its own - choosing
+  -- the face the game text renders in is a UI decision, not a framework one.
+  -- A game package seeds mdw.gameConfig.applyMainFont = true to ask for it.
+  applyMainFont = false,
   contentFontSize = 11,      -- Base font size for widget content
   mainFontSize = 11,         -- Main Mudlet console font size
   promptFontAdjust = 0,      -- Prompt bar offset from contentFontSize
@@ -292,14 +299,14 @@ mdw.config = {
 -- The factory values of every key the layout file persists, snapshotted here
 -- while mdw.config is still untouched - before setup() merges mdw.gameConfig
 -- and before loadLayout applies the player's saved choices. mdw.resetLayout
--- restores exactly these keys; anything not listed (originalMainFontSize, the
--- uninstall restore value) deliberately survives a reset.
+-- restores exactly these keys; anything not listed (originalMainFontSize and
+-- originalMainFont, the uninstall restore values) deliberately survives a reset.
 ---------------------------------------------------------------------------
 
 mdw.layoutDefaults = {}
 for _, key in ipairs({ "leftDockWidth", "rightDockWidth", "promptBarHeight",
   "contentFontSize", "mainFontSize", "promptFontAdjust", "widgetHeaderFontSize",
-  "headerMenuFontSize", "tabFontSize", "theme" }) do
+  "headerMenuFontSize", "tabFontSize", "theme", "fontFamily" }) do
   mdw.layoutDefaults[key] = mdw.config[key]
 end
 
@@ -545,6 +552,16 @@ mdw.menus = {
 -- mdw.config.originalMainFontSize: the user's main console font size, captured
 -- on first install (before MDW changes it) and persisted in the layout file, so
 -- a full uninstall can restore it. Set at runtime in setup()/loadLayout().
+-- mdw.config.originalMainFont: the same for the main console's font FAMILY,
+-- but captured only when MDW first actually applies one (applyMainFont) - a
+-- player may change their Mudlet font between install and a game enabling it.
+
+-- mdw.config.effectiveFontFamily: the family MDW renders in right now, which
+-- is fontFamily unless that one is not loaded (validateFontFamily). Runtime
+-- only, NEVER persisted, because the two can disagree for a single tick: a
+-- game package's self-update unloads its fonts before reinstalling them, and
+-- a fallback written into fontFamily would be saved by the next saveLayout -
+-- losing the player's chosen font permanently. Nil until first validation.
 
 -- Update detection: set true by onUninstall when a live UI existed, read by
 -- onInstall to report an update vs a fresh install. Preserved across the

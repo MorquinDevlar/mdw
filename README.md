@@ -158,6 +158,8 @@ mdw.gameConfig = mdw.gameConfig or {}
 mdw.gameConfig.usePromptTrigger = false        -- game drives the prompt bar itself
 mdw.gameConfig.promptPattern = "^%[%d+hp"      -- multi-line prompt matcher
 mdw.gameConfig.theme = "emerald"               -- default theme for new installs
+mdw.gameConfig.fontFamily = "Fira Code"        -- the game ships the .ttf; MDW validates and falls back per session
+mdw.gameConfig.applyMainFont = true            -- also render the main console in it (opt-in; restored on uninstall)
 ```
 
 ### Gauges in the Prompt Bar
@@ -526,6 +528,7 @@ echoing anything themselves, so your package owns every word the player sees.
 | `mdw.setSidebarVisible(side, on)` / `mdw.setPromptBarVisible(on)` | Chrome visibility by value |
 | `mdw.setDockWidth(side, px)` / `mdw.setWidgetHeight(name, px)` | Sizes by value (clamped like the drags; returns the applied size) |
 | `mdw.setMainFontSize`, `setMenuFontSize`, `setWidgetHeaderFontSize`, `setPromptFontSize`, `setWidgetFontSize(name, size)` | Absolute font sizes; each returns the applied size. `mdw.getFontSizes()` reports them all |
+| `mdw.setFontFamily(name)` / `mdw.getFontFamily()` | The font family every MDW surface renders in, validated against the fonts Mudlet has loaded - an unknown name is refused with `"invalid"` (detail = the name) instead of applied. Persisted in the layout. `mdw.getFontFamily()` returns `preferred, effective` (they differ only while a preferred font is not installed) |
 | `mdw.scrollWidget(name, action, lines)` | `"up"`/`"down"` by `lines` (default 10), `"top"`, `"bottom"`. Needs Mudlet 4.17+, else `"unsupported"` |
 | `mdw.widgetText(name)` | The widget's current text as plain lines, for reading it aloud or echoing it elsewhere |
 | `mdw.describeLayout()` | The whole layout as plain data: sidebars, prompt bar, theme, fonts, both docks' rows and occupants, floating groups, and hidden widgets with a reason (`closed`, `group_hidden`, `sidebar_hidden`) |

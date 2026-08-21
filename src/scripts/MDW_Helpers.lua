@@ -75,11 +75,22 @@ end
 -- STYLE GENERATION
 ---------------------------------------------------------------------------
 
+--- The family MDW renders in: the preference unless it is unavailable and
+-- validateFontFamily resolved a fallback (effective is nil until it first
+-- runs). Every renderer and every measurer must read this, never
+-- cfg.fontFamily - the two disagree exactly when the preferred font is not
+-- loaded, and measuring a font Qt is not drawing is what makes wrap widths
+-- and tab sizing drift.
+function mdw.activeFontFamily()
+  return mdw.config.effectiveFontFamily or mdw.config.fontFamily
+end
+
 --- Generate all stylesheets from current config and active theme.
 -- Why: Called after config/theme changes to regenerate styles with new values.
 function mdw.buildStyles()
   local cfg = mdw.config
   local c = mdw.resolveColors()
+  local family = mdw.activeFontFamily()
 
   -- Populate legacy config keys for backward compatibility
   cfg.sidebarBackground = mdw.rgbToCss(c.sidebar)
@@ -175,7 +186,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cssHeader, cfg.fontFamily, cfg.widgetHeaderFontSize,
+  ]], cssHeader, family, cfg.widgetHeaderFontSize,
     titlePadLeft, titlePadRight)
 
   mdw.styles.contentBackground = string.format([[
@@ -186,13 +197,13 @@ function mdw.buildStyles()
     background-color: %s;
     font-family: '%s';
     font-size: %dpx;
-  ]], cssWidget, cfg.fontFamily, cfg.contentFontSize)
+  ]], cssWidget, family, cfg.contentFontSize)
 
   mdw.styles.headerPane = string.format([[
     background-color: %s;
     font-family: '%s';
     font-size: %dpx;
-  ]], cssSidebar, cfg.fontFamily, cfg.headerMenuFontSize)
+  ]], cssSidebar, family, cfg.headerMenuFontSize)
 
   mdw.styles.headerButton = string.format([[
     QLabel {
@@ -206,7 +217,7 @@ function mdw.buildStyles()
       background-color: %s;
       border: 2px solid %s;
     }
-  ]], cfg.fontFamily, cfg.headerMenuFontSize, cfg.menuPaddingLeft,
+  ]], family, cfg.headerMenuFontSize, cfg.menuPaddingLeft,
     cssMenuBg, cssMenuBorder)
 
   -- Active state for header buttons when their menu is open
@@ -218,7 +229,7 @@ function mdw.buildStyles()
       padding-left: %dpx;
       border: 2px solid %s;
     }
-  ]], cssMenuBg, cfg.fontFamily, cfg.headerMenuFontSize, cfg.menuPaddingLeft,
+  ]], cssMenuBg, family, cfg.headerMenuFontSize, cfg.menuPaddingLeft,
     cssMenuBorder)
 
   mdw.styles.menuItem = string.format([[
@@ -228,7 +239,7 @@ function mdw.buildStyles()
       font-size: %dpx;
       padding-left: %dpx;
     }
-  ]], cfg.fontFamily, cfg.headerMenuFontSize, cfg.menuPaddingLeft)
+  ]], family, cfg.headerMenuFontSize, cfg.menuPaddingLeft)
 
   mdw.styles.menuBackground = string.format([[
     background-color: %s;
@@ -254,7 +265,7 @@ function mdw.buildStyles()
       font-size: %dpx;
       padding-left: %dpx;
     }
-  ]], cfg.fontFamily, cfg.contentFontSize, cfg.contextMenuPaddingLeft)
+  ]], family, cfg.contentFontSize, cfg.contextMenuPaddingLeft)
 
   -- DockView-style drop preview: a grey semi-transparent block with a themed edge.
   mdw.styles.dropZone = string.format([[
@@ -295,7 +306,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.tabActiveBackground, cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding,
+  ]], cfg.tabActiveBackground, family, cfg.tabFontSize, cfg.tabPadding,
     cfg.tabPadding + (cfg.tabCloseWidth or 0))
 
   mdw.styles.groupTabInactive = string.format([[
@@ -307,7 +318,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.tabGroupInactiveBackground, cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding,
+  ]], cfg.tabGroupInactiveBackground, family, cfg.tabFontSize, cfg.tabPadding,
     cfg.tabPadding + (cfg.tabCloseWidth or 0))
 
   -- Tight variant for a squeezed bar: an inactive tab never renders the close
@@ -322,7 +333,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.tabGroupInactiveBackground, cfg.fontFamily, cfg.tabFontSize,
+  ]], cfg.tabGroupInactiveBackground, family, cfg.tabFontSize,
     cfg.tabPadding, cfg.tabPadding)
 
   -- Close (x) shown on the active group tab. It is click-through (so the tab
@@ -332,9 +343,9 @@ function mdw.buildStyles()
     QLabel { background-color: %s; qproperty-alignment: 'AlignCenter';
       font-family: '%s'; font-size: %dpx; border-top-right-radius: 5px; }
   ]]
-  mdw.styles.tabClose = string.format(tabCloseBase, "transparent", cfg.fontFamily, cfg.tabFontSize)
+  mdw.styles.tabClose = string.format(tabCloseBase, "transparent", family, cfg.tabFontSize)
   mdw.styles.tabCloseHover = string.format(tabCloseBase, mdw.rgbToRgba(c.accent, 0.35),
-    cfg.fontFamily, cfg.tabFontSize)
+    family, cfg.tabFontSize)
 
   -- Channel (tabbed-widget) tabs: a fine accent underline when active, NO fill
   -- and NO dividers between them. A transparent underline keeps inactive tabs
@@ -350,7 +361,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.tabActiveBackground, cssWidget, cssAccent, cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
+  ]], cfg.tabActiveBackground, cssWidget, cssAccent, family, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
 
   mdw.styles.channelTabInactive = string.format([[
     background-color: transparent;
@@ -361,7 +372,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cssWidget, cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
+  ]], cssWidget, family, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
 
   -- The source tab while its ghost is being dragged: looks emptied out.
   mdw.styles.tabDragging = string.format([[
@@ -372,7 +383,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
+  ]], family, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
 
   -- Drag ghost: a solid floating tab box (the active tab is transparent now).
   mdw.styles.tabGhost = string.format([[
@@ -383,7 +394,7 @@ function mdw.buildStyles()
     font-size: %dpx;
     padding-left: %dpx;
     padding-right: %dpx;
-  ]], cfg.tabActiveBackground, cssAccent, cfg.fontFamily, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
+  ]], cfg.tabActiveBackground, cssAccent, family, cfg.tabFontSize, cfg.tabPadding, cfg.tabPadding)
 
   mdw.styles.controlButton = string.format([[
     QLabel {
@@ -396,7 +407,7 @@ function mdw.buildStyles()
     QLabel:hover {
       background-color: %s;
     }
-  ]], mdw.rgbToCss(c.controlBackground), cfg.fontFamily, cfg.layoutMenuBtnFontSize,
+  ]], mdw.rgbToCss(c.controlBackground), family, cfg.layoutMenuBtnFontSize,
     mdw.rgbToCss(c.controlBorder), mdw.rgbToCss(c.controlHover))
 
 end
@@ -506,10 +517,11 @@ mdw._charHeightCache = mdw._charHeightCache or {}
 function mdw.charHeightEstimate(fontSize)
   local cfg = mdw.config
   fontSize = fontSize or cfg.contentFontSize
-  local key = fontSize .. ":" .. cfg.fontFamily
+  local family = mdw.activeFontFamily()
+  local key = fontSize .. ":" .. family
   local height = mdw._charHeightCache[key]
   if not height then
-    local ok, _, real = pcall(calcFontSize, fontSize, cfg.fontFamily)
+    local ok, _, real = pcall(calcFontSize, fontSize, family)
     if ok and type(real) == "number" and real > 0 then
       height = real
     else
@@ -525,10 +537,11 @@ end
 function mdw.charWidthEstimate(fontSize)
   local cfg = mdw.config
   fontSize = fontSize or cfg.contentFontSize
-  local key = fontSize .. ":" .. cfg.fontFamily
+  local family = mdw.activeFontFamily()
+  local key = fontSize .. ":" .. family
   local width = mdw._charWidthCache[key]
   if not width then
-    local ok, real = pcall(calcFontSize, fontSize, cfg.fontFamily)
+    local ok, real = pcall(calcFontSize, fontSize, family)
     if ok and type(real) == "number" and real > 0 then
       width = real
     else
@@ -587,7 +600,7 @@ end
 function mdw.calculateWrap(pixelWidth, fontSize)
   local cfg = mdw.config
   fontSize = fontSize or cfg.contentFontSize
-  local charWidth, _ = calcFontSize(fontSize, cfg.fontFamily)
+  local charWidth, _ = calcFontSize(fontSize, mdw.activeFontFamily())
   if charWidth and charWidth > 0 then
     return math.floor(pixelWidth / charWidth)
   end
@@ -1632,6 +1645,41 @@ function mdw.applyThemeStyles()
 
   -- Update theme-related menu text if functions are available
   if mdw.updateThemeMenuText then mdw.updateThemeMenuText() end
+end
+
+--- Re-apply the effective family to every live surface in place. Everything
+-- below embeds the family: the consoles carry it as their font, the
+-- stylesheets bake it in, and the glyph-width caches key on it, so the
+-- persistent header buttons and Widgets dropdown re-lay like setMenuFontSize.
+function mdw.applyFontFamily()
+  if not mdw.isSetUp then return end
+  local family = mdw.activeFontFamily()
+
+  for _, widget in pairs(mdw.widgets) do
+    if not widget.isStack then
+      for _, tabObj in ipairs(mdw.widgetConsoles(widget)) do
+        if tabObj.console then tabObj.console:setFont(family) end
+      end
+      -- Recomputes wrap widths for the new glyph advance, then reflows.
+      mdw.applyWidgetFontSize(widget)
+    end
+  end
+
+  if mdw.promptBar then
+    mdw.promptBar:setFont(family)
+    mdw.promptBar:setWrap(mdw.calculateWrap(mdw.promptBar:get_width(), mdw.getPromptEffectiveFontSize()))
+    mdw.ensurePromptBarHeight()
+  end
+
+  for _, bar in pairs(mdw.bars or {}) do
+    if bar.console then bar.console:setFont(family) end
+  end
+
+  mdw.buildStyles()
+  mdw.applyThemeStyles()
+  -- Guarded: Helpers loads before Menus, so these may not exist yet.
+  if mdw.layoutHeaderButtons then mdw.layoutHeaderButtons() end
+  if mdw.rebuildWidgetsMenu then mdw.rebuildWidgetsMenu() end
 end
 
 ---------------------------------------------------------------------------
