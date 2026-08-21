@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.4 - 2026-08-22
+
 ### Fixed
 - A game package that reinstalls now comes back whole. 0.6.2 re-ran its
   `onReady` at the end of `mdw.swapPackage`, which is too early: Mudlet has not
