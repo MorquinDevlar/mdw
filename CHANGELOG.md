@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.3 - 2026-08-22
+
 ### Changed
 - The header bar, its menus and widget title bars now default to font size 11,
   the same as widget content and tabs. They sat a point larger, which read as
