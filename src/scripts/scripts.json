@@ -1,0 +1,62 @@
+[
+    {
+        "name": "MDW_Config",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Helpers",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Init",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_WidgetCore",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_DockLayout",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Widget",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_TabbedWidget",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Stack",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Menus",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    },
+    {
+        "name": "MDW_Examples",
+        "isActive": "yes",
+        "script": "",
+        "isFolder": "no"
+    }
+]

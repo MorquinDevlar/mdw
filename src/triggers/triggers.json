@@ -1,0 +1,15 @@
+[
+    {
+        "name": "MDW_PromptCapture",
+        "isActive": "yes",
+        "isFolder": "no",
+        "regex": "yes",
+        "patterns": [
+            {
+                "pattern": "^",
+                "type": "prompt"
+            }
+        ],
+        "script": ""
+    }
+]
