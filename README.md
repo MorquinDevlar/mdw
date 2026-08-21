@@ -511,8 +511,36 @@ your `onReady` callback as the fallback for a bootstrap that could not
 complete (no network, a Mudlet older than 4.14), and have it say that MDW is
 being fetched rather than asking the player to update it by hand. Updating
 your own package stays your package's business (see the uninstall reaper
-above); the bootstrap only acts again when a new release of yours raises the
-minimum.
+above, and `mdw.swapPackage` below); the bootstrap only acts again when a new
+release of yours raises the minimum.
+
+### Updating Your Own Package
+
+```lua
+local ok, why = mdw.swapPackage("MyGameUI", downloadedFile)
+if not ok then
+  -- known immediately, and MDW is still here to say it
+  cecho("<red>Update failed: " .. why .. "\n")
+end
+```
+
+A package cannot reliably swap **itself**. The code running the swap lives
+inside the thing being uninstalled, so it cannot check the result and cannot
+report a failure - and Mudlet will ACCEPT an install offered before the
+uninstall has finished and then silently ignore it, leaving the player with no
+package and nothing said. The usual workaround is `uninstallPackage(name)`
+followed by `tempTimer(1, ...)` and hope, with a watchdog to notice when hope
+was misplaced.
+
+MDW is not the package being removed, so it can do both halves back to back
+and hand back what Mudlet actually reported. Verifying the file is still yours
+- only you know what a valid build of your package looks like - and MDW
+refuses to swap itself, since that is the very self-swap this avoids. Your
+package moves MDW; MDW moves your package. Neither ever has to move itself.
+
+Everything the uninstall reaper does still applies: your creations are reaped
+by ownership stamp inside the uninstall, and your reinstall re-seeds its
+registrations and late-joins as usual.
 
 ### Scripted Control
 

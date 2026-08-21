@@ -10,6 +10,16 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.swapPackage(name, path)` - replace an installed game package with a new
+  build of it, uninstall and install in one call, and get back whether Mudlet
+  actually took it. A package cannot reliably do this for itself: the code
+  runs inside the thing being uninstalled, so it cannot check the result, and
+  Mudlet accepts an install offered before the uninstall has finished and then
+  ignores it. MDW is not the package being removed, so it can. It refuses to
+  swap MDW itself, which is that same problem in reverse - a package built on
+  MDW is what moves MDW.
+
 ## 0.5.1 - 2026-08-21
 
 ### Added

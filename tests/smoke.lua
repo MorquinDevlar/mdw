@@ -213,6 +213,12 @@ function uninstallPackage(name)
   UNINSTALLED[#UNINSTALLED + 1] = name
   raiseEvent("sysUninstallPackage", name)
 end
+INSTALLED = {}
+INSTALL_REFUSES = false -- set to model Mudlet declining the install
+function installPackage(path)
+  INSTALLED[#INSTALLED + 1] = path
+  return not INSTALL_REFUSES
+end
 local function cbSet(kind)
   return function(name, fn)
     H.callbacks[name] = H.callbacks[name] or {}
@@ -993,6 +999,40 @@ check(mdw.onReady["ReapGame"] == nil, "owner's onReady registration removed")
 check(mdw.gamePackages["ReapGameUI"] == nil, "co-removal entry consumed by the reap")
 check(mdw.widgets["Items"] ~= nil, "other consumers' widgets untouched by the reap")
 
+-- 7a2. mdw.swapPackage: replacing a game package on its behalf. A package
+-- cannot reliably swap ITSELF - the code doing it is inside the thing being
+-- uninstalled, so it cannot check the result or report a failure, and Mudlet
+-- accepts an install offered before the uninstall has finished and then
+-- silently ignores it. MDW is not the package being removed, so it does both
+-- halves back to back and returns what Mudlet actually said.
+local swapFile = os.tmpname()
+local swapFh = assert(io.open(swapFile, "wb")); swapFh:write("PK-not-really"); swapFh:close()
+local uninstallsBeforeSwap, installsBeforeSwap = #UNINSTALLED, #INSTALLED
+local swapOk = mdw.swapPackage("SwapGameUI", swapFile)
+check(swapOk == true, "swapPackage reports success when Mudlet accepts the install")
+check(UNINSTALLED[#UNINSTALLED] == "SwapGameUI" and #UNINSTALLED == uninstallsBeforeSwap + 1,
+  "it uninstalls the named package")
+check(INSTALLED[#INSTALLED] == swapFile and #INSTALLED == installsBeforeSwap + 1,
+  "and installs the replacement, in the same call - no timer, nothing to wait for")
+-- The point of doing this from outside: a refusal is KNOWN, not discovered
+-- twenty seconds later by a watchdog.
+INSTALL_REFUSES = true
+local swapWhy
+swapOk, swapWhy = mdw.swapPackage("SwapGameUI", swapFile)
+check(swapOk == false and swapWhy:find("refused", 1, true) ~= nil,
+  "a refused install is reported straight back to the caller")
+INSTALL_REFUSES = false
+os.remove(swapFile)
+-- Guards. Swapping MDW itself is the very self-swap this exists to avoid.
+swapOk, swapWhy = mdw.swapPackage(mdw.packageName, "/nonexistent")
+check(swapOk == false and swapWhy:find("itself", 1, true) ~= nil,
+  "swapPackage refuses to swap MDW itself")
+swapOk, swapWhy = mdw.swapPackage("SwapGameUI", "/nonexistent/nope.mpackage")
+check(swapOk == false and swapWhy:find("readable", 1, true) ~= nil,
+  "and refuses a file it cannot read, before anything is uninstalled")
+check(#UNINSTALLED == uninstallsBeforeSwap + 2,
+  "neither guard uninstalled anything")
+
 -- 7b. Floating-group border resize must reflow the active member on release
 -- (regression found by the verification workflow: stacks have no :reflow).
 local itemsGroup = mdw.widgets[mdw.widgets["Items"].stackId]
@@ -1372,13 +1412,18 @@ check(mdw.gameSettings.KeyGame == nil, "keepGameSettings = false wipes them")
 local teardownsBefore = TEARDOWN_RUNS
 mdw.setFontFamily("Fira Code")
 check(H.windowFont.main == "Fira Code", "the main console follows the family while opted in")
+-- Relative, not UNINSTALLED[1]/[2]: what this asserts is the ORDER within the
+-- full uninstall, and anything uninstalled earlier in the suite is irrelevant
+-- to it.
+local uninstallsBeforeFull = #UNINSTALLED
 mdw.uninstall()
 check(H.windowFont.main == "Bitstream Vera Sans Mono",
   "uninstall restores the player's own main console font")
 check(not mdw.isSetUp, "uninstall tears down")
 check(TEARDOWN_RUNS > teardownsBefore, "onTeardown callbacks ran during uninstall")
 check(not io.exists(HOME .. "/mdw_layout.lua"), "uninstall removed the layout file")
-check(UNINSTALLED[1] == "TestGameUI" and UNINSTALLED[2] == mdw.packageName,
+check(UNINSTALLED[uninstallsBeforeFull + 1] == "TestGameUI"
+  and UNINSTALLED[uninstallsBeforeFull + 2] == mdw.packageName,
   "registered game package uninstalled before MDW itself")
 
 print("\nSMOKE PASSED")

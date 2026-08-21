@@ -1704,6 +1704,49 @@ function mdw.cleanupGame(owner)
   if mdw.onTeardown then mdw.onTeardown[owner] = nil end
 end
 
+--- Replace an installed package with a new build of it: uninstall, then
+--- install, in one synchronous call, on behalf of the package being replaced.
+--
+-- WHY this belongs to MDW rather than to the package doing the updating: a
+-- package cannot reliably swap ITSELF. The code running the swap lives inside
+-- the thing being uninstalled, so it cannot check the result and cannot report
+-- a failure - and in Mudlet it cannot even install immediately, because
+-- handing the new file over before the uninstall has finished is ACCEPTED and
+-- then silently ignored, leaving the player with no package and nothing said.
+-- The usual workaround is to defer the install by a second and hope. MDW is
+-- not the package being removed here, so it can do both halves back to back
+-- and hand back what Mudlet actually reported.
+--
+-- Verifying `path` is the CALLER's job: only the caller knows what a valid
+-- build of its own package looks like (magic bytes, a plausible size, a
+-- version it expected). This checks that the file can be opened, no more.
+--
+-- Refuses MDW itself, which would be exactly the self-swap this exists to
+-- avoid. A package built on MDW is the right thing to move MDW - that
+-- direction already works for the same reason, in reverse.
+--
+-- @param name  installed package name, as Mudlet knows it
+-- @param path  package file to install in its place
+-- @return true, or false plus a short reason
+function mdw.swapPackage(name, path)
+  if type(name) ~= "string" or name == "" then return false, "no package name" end
+  if type(path) ~= "string" or path == "" then return false, "no package file" end
+  if name == mdw.packageName then
+    return false, "MDW cannot swap itself; a package built on it must do that"
+  end
+  local fh = io.open(path, "rb")
+  if not fh then return false, "package file is not readable" end
+  fh:close()
+  -- A registered game package's creations are reaped by ownership stamp inside
+  -- this call (onUninstall below), and its reinstall re-seeds the
+  -- registrations and late-joins - the documented consumer pattern.
+  uninstallPackage(name)
+  if not installPackage(path) then
+    return false, "Mudlet refused the install"
+  end
+  return true
+end
+
 --- Handle package uninstall.
 -- Why: Ensures clean removal of all UI elements and handlers. A package update
 -- fires uninstall immediately followed by install, so we record that a live UI
