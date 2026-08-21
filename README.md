@@ -355,6 +355,15 @@ It runs at the start of every teardown (package updates and rebuilds
 included), while the UI still exists. Without it, anything your `onReady`
 starts on every setup and never stops would duplicate across each rebuild.
 
+**The corollary catches people out.** MDW answers its own `sysInstallPackage`
+by re-running `setup()`, and that tears down first - so your teardown hook
+runs, and whatever it kills is killed, *while you are still handling the same
+event*. Work you defer across an MDW install must therefore not depend on a
+`tempTimer` your own hook would cancel: the timer is destroyed before it can
+fire, and nothing says so. Call it directly out of the event instead, or arrange
+for the hook not to reach it. The same applies to any handler of yours that
+runs alongside MDW's on a shared event - handler order is not yours to choose.
+
 ### Branding and One-Button Uninstall
 
 Two more seeds turn MDW's chrome into *your game's* UI:

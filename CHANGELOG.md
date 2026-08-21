@@ -10,6 +10,14 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- Documented the corollary of `mdw.onTeardown` that catches package authors
+  out: MDW answers its own `sysInstallPackage` by re-running `setup()`, which
+  tears down first - so a consumer's teardown hook runs, and kills what it
+  kills, while that same event is still being handled. Work deferred across an
+  MDW install must not sit on a `tempTimer` the hook would cancel, because the
+  timer is destroyed before it fires and nothing reports it.
+
 ## 0.6.0 - 2026-08-22
 
 ### Added
