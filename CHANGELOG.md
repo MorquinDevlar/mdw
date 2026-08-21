@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.1 - 2026-08-22
+
 ### Changed
 - Documented the corollary of `mdw.onTeardown` that catches package authors
   out: MDW answers its own `sysInstallPackage` by re-running `setup()`, which
