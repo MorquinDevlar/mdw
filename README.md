@@ -158,9 +158,20 @@ mdw.gameConfig = mdw.gameConfig or {}
 mdw.gameConfig.usePromptTrigger = false        -- game drives the prompt bar itself
 mdw.gameConfig.promptPattern = "^%[%d+hp"      -- multi-line prompt matcher
 mdw.gameConfig.theme = "emerald"               -- default theme for new installs
-mdw.gameConfig.fontFamily = "Fira Code"        -- the game ships the .ttf; MDW validates and falls back per session
+mdw.gameConfig.fontFamily = "Fira Code Willowdale" -- the game ships the .ttf under its OWN family name (see below)
 mdw.gameConfig.applyMainFont = true            -- also render the main console in it (opt-in; restored on uninstall)
 ```
+
+A package that bundles a font should give it a family name of its own rather
+than the upstream one - `Fira Code Willowdale`, not `Fira Code`. Mudlet
+registers a package's fonts with `QFontDatabase::addApplicationFont` and
+tracks them BY FILE, not by family, so a player who already has the upstream
+font installed ends up with two families of the same name in Qt's database.
+Which one renders is undocumented and platform-dependent, and it goes wrong
+only on the machines that happen to have the font, so it survives testing.
+Renaming the bundled copy also leaves the player's own font untouched. Check
+the licence first: renaming is required for a font whose licence declares a
+Reserved Font Name, and permitted for one that does not.
 
 ### Gauges in the Prompt Bar
 
