@@ -499,8 +499,9 @@ check(mdw.config.mainFontSize == 12 and mdw.menus.layout, "font adjuster bumps s
 -- the rebuilt dropdown used to pick the new size up)
 local oldThemeX = mdw.headerButtonX.themeButton
 local oldThemeW = mdw.themeButton:get_width()
+local menuFontBefore = mdw.config.headerMenuFontSize
 mdw.adjustMenuFontSize(1)
-check(mdw.config.headerMenuFontSize == 13, "menu font size bumped")
+check(mdw.config.headerMenuFontSize == menuFontBefore + 1, "menu font size bumped")
 check(mdw.themeButton:get_width() > oldThemeW, "header buttons re-sized for new menu font")
 check(mdw.headerButtonX.themeButton > oldThemeX, "later header buttons shifted right")
 check(mdw.widgetsMenuBg:get_x() == mdw.headerButtonX.widgetsButton, "widgets dropdown re-anchored")

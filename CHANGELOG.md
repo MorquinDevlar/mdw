@@ -10,6 +10,12 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- The header bar, its menus and widget title bars now default to font size 11,
+  the same as widget content and tabs. They sat a point larger, which read as
+  an accident rather than a hierarchy. Only new profiles are affected - a size
+  you have already chosen stays yours, and the size controls are unchanged.
+
 ## 0.6.2 - 2026-08-22
 
 ### Fixed

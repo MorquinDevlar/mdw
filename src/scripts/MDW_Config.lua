@@ -254,9 +254,14 @@ mdw.config = {
   contentFontSize = 11,      -- Base font size for widget content
   mainFontSize = 11,         -- Main Mudlet console font size
   promptFontAdjust = 0,      -- Prompt bar offset from contentFontSize
-  headerMenuFontSize = 12,   -- Font size for header bar buttons and dropdown menus
+  -- 11 everywhere the framework writes TEXT: content, tabs, the header bar and
+  -- its menus, widget title bars. The header and titles used to sit a point
+  -- above the rest, which read as an accident rather than a hierarchy - the
+  -- chrome does not need to shout over the content it frames. The glyph sizes
+  -- below are deliberately not part of this: those are icons, not type.
+  headerMenuFontSize = 11,   -- Font size for header bar buttons and dropdown menus
   tabFontSize = 11,          -- Font size for tab buttons in tabbed widgets
-  widgetHeaderFontSize = 12, -- Font size for widget title bars
+  widgetHeaderFontSize = 11, -- Font size for widget title bars
 
   -- Font size limits, applied everywhere a size is set, adjusted, or restored.
   minFontSize = 8,           -- Smallest selectable font size
