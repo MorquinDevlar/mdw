@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-21
+
 ### Added
 - `mdw.setFontFamily(name)` / `mdw.getFontFamily()`: set the font family every MDW surface renders in from a script or a game package's own command. The name is validated against the fonts Mudlet has loaded, so an unknown one is refused (`"invalid"`, with the name as detail) instead of silently substituted by Qt; `"already"` when it is the live family, `"ok"` otherwise. `mdw.getFontFamily()` returns the preferred and the currently rendering family.
 - `mdw.config.applyMainFont` (default false): opt in and MDW renders the MAIN Mudlet console in the same family. The player's own family is captured the first time MDW applies one and restored by a full uninstall, alongside their original main-console font size.
