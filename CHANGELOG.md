@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.5.1 - 2026-08-21
+
 ### Added
 - Documented bundling a font in a game package under a family name of its own (README and wiki Configuration): Mudlet registers package fonts by file, so a copy that keeps the upstream name can lose to a player's system-installed font unpredictably.
 
