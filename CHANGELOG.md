@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.0 - 2026-08-22
+
 ### Added
 - `mdw.swapPackage(name, path)` - replace an installed game package with a new
   build of it, uninstall and install in one call, and get back whether Mudlet
