@@ -1025,6 +1025,10 @@ check(INSTALLED[#INSTALLED] == swapFile and #INSTALLED == installsBeforeSwap + 1
 -- lands after the install takes the new copy's widgets with it. A live client
 -- came back from a swap with its prompt bar and nothing else. onReady is
 -- idempotent by contract, so the swap re-asserts it.
+-- A registered game package comes back on sysInstallPackage - the event that
+-- means Mudlet has FINISHED installing it, and the first moment both halves
+-- are true: its creations have been reaped by stamp on the way out, and its
+-- scripts have re-seeded its registration on the way in. Nothing is timed.
 local rebuilt = 0
 -- The uninstall reaps the owner's registrations; the package's own scripts
 -- re-seed them as it installs, which is what this models.
@@ -1035,7 +1039,16 @@ end
 mdw.gamePackages["SwapGameUI"] = true
 mdw.onReady["SwapGameUI"] = function() rebuilt = rebuilt + 1 end
 mdw.swapPackage("SwapGameUI", swapFile)
-check(rebuilt == 1, "a swap re-runs the owner's ready callback, so a reaped UI comes back")
+check(rebuilt == 0, "the swap itself asserts nothing - too early to know what is registered")
+raiseEvent("sysInstallPackage", "SwapGameUI")
+check(rebuilt == 1,
+  "the install EVENT re-runs the owner's ready callback, so a reaped UI comes back")
+-- An unregistered package is not ours to rebuild.
+local strayRebuilt = 0
+mdw.onReady["StrayThing"] = function() strayRebuilt = strayRebuilt + 1 end
+raiseEvent("sysInstallPackage", "StrayThing")
+check(strayRebuilt == 0, "a package MDW does not know about is left alone")
+mdw.onReady["StrayThing"] = nil
 INSTALL_SCRIPTS = nil
 mdw.onReady["SwapGameUI"] = nil
 mdw.gamePackages["SwapGameUI"] = nil

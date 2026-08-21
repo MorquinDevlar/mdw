@@ -10,6 +10,14 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- A game package that reinstalls now comes back whole. 0.6.2 re-ran its
+  `onReady` at the end of `mdw.swapPackage`, which is too early: Mudlet has not
+  necessarily finished, the package's scripts may not have re-seeded their
+  registration, and there was nothing to run. It now happens on
+  `sysInstallPackage` - the event that means Mudlet has finished - and so
+  covers a package installed by hand as well as one swapped.
+
 ## 0.6.3 - 2026-08-22
 
 ### Changed

@@ -551,12 +551,18 @@ Everything the uninstall reaper does still applies: your creations are reaped
 by ownership stamp inside the uninstall, and your reinstall re-seeds its
 registrations and late-joins as usual.
 
-The swap also re-runs your `onReady` once the new copy is in. That is not
-belt-and-braces: the old copy and the new one share an ownership stamp, so
-removal bookkeeping that lands *after* the install reaps the new copy's
-widgets - a package can come back with its prompt bar and nothing else. Your
-`onReady` is required to be idempotent anyway (MDW re-runs it on every setup),
-so this repairs a half-built UI and costs nothing when there is none.
+MDW also re-runs your `onReady` when Mudlet reports your package installed -
+on `sysInstallPackage`, whether the install came from `swapPackage` or from a
+player installing your package by hand. That is not belt-and-braces: the old
+copy and the new one share an ownership stamp, so removal bookkeeping that
+lands *after* the install reaps the new copy's widgets, and a package can come
+back with its prompt bar and nothing else. Your `onReady` is idempotent anyway
+(MDW re-runs it on every setup), so this repairs a half-built UI and costs
+nothing when there is none.
+
+It happens on the EVENT, not at the end of the swap: at that point Mudlet has
+not necessarily finished, your scripts may not have re-seeded their
+registration, and there would be nothing to run. Nothing here is timed.
 
 ### Scripted Control
 

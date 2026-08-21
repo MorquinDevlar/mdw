@@ -1637,6 +1637,23 @@ function mdw.onInstall(_, package)
   if package ~= mdw.packageName then
     -- A foreign package may ship the font MDW prefers.
     mdw.revalidateFontFamily()
+    -- A REGISTERED game package that just (re)installed comes back here. Its
+    -- creations were reaped by ownership stamp on the way out, and by now
+    -- Mudlet has run its scripts, so its registration is seeded again - this
+    -- event is the first moment both are true.
+    --
+    -- Why MDW does this rather than the package: the hazard is MDW's own. The
+    -- old copy and the new one share an ownership stamp, so removal
+    -- bookkeeping can reap what the new copy just built, and a package came
+    -- back with its prompt bar and no widgets. A consumer cannot see that
+    -- happen to itself. onReady is idempotent by contract - MDW re-runs it on
+    -- every setup - so asserting it here repairs a half-built UI and costs
+    -- nothing when there is nothing to repair.
+    local entry = mdw.gamePackages and mdw.gamePackages[package]
+    if entry and mdw.isSetUp and mdw.onReady then
+      local owner = (type(entry) == "string" and entry) or package
+      if mdw.onReady[owner] then mdw.runReadyCallbacks(owner) end
+    end
     return
   end
 
@@ -1744,22 +1761,10 @@ function mdw.swapPackage(name, path)
   if not installPackage(path) then
     return false, "Mudlet refused the install"
   end
-  -- The new copy's scripts ran during that install and late-joined, so its UI
-  -- should already be whole. Re-assert it anyway, because the hazard here is
-  -- MDW's own: everything a consumer creates is reaped by OWNERSHIP STAMP, and
-  -- the old copy and the new one share that stamp - so any bookkeeping from the
-  -- removal that lands after the install takes the NEW copy's creations with
-  -- it. A live client came back from a swap with its prompt bar and no widgets
-  -- for exactly that reason.
-  --
-  -- onReady callbacks are required to be idempotent (the consumer contract
-  -- says so, because MDW re-runs them on every setup), so running one again
-  -- repairs a half-built UI and costs nothing when there is nothing to repair.
-  local entry = mdw.gamePackages and mdw.gamePackages[name]
-  local owner = (type(entry) == "string" and entry) or name
-  if mdw.isSetUp and mdw.onReady and mdw.onReady[owner] then
-    mdw.runReadyCallbacks(owner)
-  end
+  -- Nothing to re-assert here. The package comes back through onInstall below,
+  -- on sysInstallPackage - the event that means Mudlet has FINISHED installing
+  -- it. Doing it at this point instead would run before the new copy's scripts
+  -- had re-seeded their registration, find nothing registered, and do nothing.
   return true
 end
 
