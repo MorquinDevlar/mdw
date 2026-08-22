@@ -943,6 +943,14 @@ function mdw.saveLayout()
   -- Suppressed while rebuilding stacks on load (the layout is mid-restore;
   -- rebuildStacksFromLayout saves once when done).
   if mdw._restoringLayout then return end
+  -- And while DISMANTLING, for the mirror-image reason. Destroying a widget
+  -- saves the layout, so a teardown wrote the file once per widget as the UI
+  -- came apart - three dozen times in a single package update - and the last
+  -- writes recorded a UI that was already half gone. That degenerate layout is
+  -- what came back on the next build, which is how a group could return
+  -- collapsed after an update and stay that way. The good layout is the one
+  -- saved BEFORE the teardown; nothing during it is worth keeping.
+  if mdw._tearingDown then return end
 
   local layout = {
     version = 1,
@@ -1382,6 +1390,10 @@ function mdw.setup()
   -- Idempotent: never build a second UI on top of an existing one. Guards
   -- against a package update that deferred teardown, or a double profile-load.
   if mdw.isSetUp then mdw.teardown() end
+  -- Defensive: an error part-way through a teardown would otherwise leave
+  -- saving switched off for the rest of the session, and the player's layout
+  -- would silently stop being remembered.
+  mdw._tearingDown = false
 
   mdw.echo("Setting up UI...")
   mdw.notify("Initialising")
@@ -1590,6 +1602,10 @@ end
 function mdw.teardown()
   mdw.echo("Cleaning up UI...")
   mdw.notify("Cleaning up")
+  -- Nothing that happens from here on is a layout worth recording: see
+  -- saveLayout. Cleared in setup() as well as at the end, so an error part-way
+  -- through a teardown cannot leave saving switched off for the session.
+  mdw._tearingDown = true
 
   -- Consumer cleanup first, while the UI their state points into still
   -- exists - the counterpart of runReadyCallbacks (see mdw.onTeardown).
@@ -1626,6 +1642,7 @@ function mdw.teardown()
   setBorderTop(0)
   setBorderBottom(0)
 
+  mdw._tearingDown = false
   mdw.isSetUp = false
   mdw.echo("Cleanup complete")
 end
@@ -1688,6 +1705,11 @@ end
 function mdw.cleanupGame(owner)
   mdw.debugEcho("cleanupGame: reaping everything owned by %s", tostring(owner))
   if not owner then return end
+  -- A reap is a teardown of one consumer's things, and saves the layout once
+  -- per widget as it goes - erasing that consumer from the file it will be
+  -- restored from. Suppressed for the same reason as a full teardown.
+  local wasTearingDown = mdw._tearingDown
+  mdw._tearingDown = true
   -- Widgets first (their emptied groups die with them), then any stacks the
   -- owner created directly that are still alive.
   local named = {}
@@ -1727,6 +1749,9 @@ function mdw.cleanupGame(owner)
   -- The registrations themselves
   if mdw.onReady then mdw.onReady[owner] = nil end
   if mdw.onTeardown then mdw.onTeardown[owner] = nil end
+  -- Restore rather than clear: a reap can run inside a full teardown, and
+  -- clearing here would switch saving back on for the rest of it.
+  mdw._tearingDown = wasTearingDown
 end
 
 --- Replace an installed package with a new build of it: uninstall, then

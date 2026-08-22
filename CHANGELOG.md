@@ -10,6 +10,15 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- Tearing the UI down no longer overwrites your saved layout. Destroying a
+  widget saves the layout, so a teardown wrote the file once per widget as the
+  UI came apart - dozens of times during a package update - and the last writes
+  recorded a UI that was already half gone. That half-gone layout was then
+  restored on the next build, which is how a widget group could come back
+  collapsed after an update and stay that way. Saving is now suppressed while
+  dismantling, exactly as it already was while restoring.
+
 ## 0.6.6 - 2026-08-22
 
 ### Fixed

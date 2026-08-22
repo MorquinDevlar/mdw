@@ -1049,6 +1049,29 @@ local strayRebuilt = 0
 mdw.onReady["StrayThing"] = function() strayRebuilt = strayRebuilt + 1 end
 raiseEvent("sysInstallPackage", "StrayThing")
 check(strayRebuilt == 0, "a package MDW does not know about is left alone")
+-- Dismantling must not overwrite the layout. Destroying a widget saves it, so
+-- a teardown used to write the file once per widget as the UI came apart -
+-- three dozen times in one package update - and the last writes recorded a UI
+-- that was already half gone. That degenerate layout is what came back on the
+-- next build, which is how a group returned collapsed after an update.
+-- Counted from the WRITE, not the call: suppression happens inside saveLayout,
+-- so callers still call it - they just no longer overwrite the file.
+mdw.gamePackages["ReapSaveUI"] = true
+mdw._currentOwner = "ReapSaveUI"
+mdw.Widget:new({ name = "ReapSaveWidget", title = "Reap Save", dock = "left" })
+mdw._currentOwner = nil
+mdw.debugMode = true
+ECHOED = {}
+mdw.cleanupGame("ReapSaveUI")
+local reapTrace = table.concat(ECHOED)
+mdw.debugMode = false
+local writes = select(2, reapTrace:gsub("Layout saved", ""))
+check(writes == 0, "a reap writes no layout at all - the good one is the last before it")
+check(mdw._tearingDown ~= true, "and the suppression is lifted again afterwards")
+-- cleanupGame reaps the owner's things but the co-removal entry is cleared by
+-- onUninstall, which did not run here - so clear it, or the full-uninstall
+-- test below walks a package this one invented.
+mdw.gamePackages["ReapSaveUI"] = nil
 -- The lifecycle is traceable when debugMode is on, because when a consumer
 -- comes back half-built there is otherwise nothing to look at: "not
 -- registered", "MDW not set up" and "no onReady" look identical from outside
