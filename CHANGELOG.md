@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.8 - 2026-08-22
+
 ### Changed
 - Layout saves are batched across an operation instead of written once per
   widget. Building the UI wrote the file two dozen times and tearing it down
