@@ -1067,7 +1067,7 @@ local reapTrace = table.concat(ECHOED)
 mdw.debugMode = false
 local writes = select(2, reapTrace:gsub("Layout saved", ""))
 check(writes == 0, "a reap writes no layout at all - the good one is the last before it")
-check(mdw._tearingDown ~= true, "and the suppression is lifted again afterwards")
+check((mdw._layoutSaveDepth or 0) == 0, "and the hold is lifted again afterwards")
 -- cleanupGame reaps the owner's things but the co-removal entry is cleared by
 -- onUninstall, which did not run here - so clear it, or the full-uninstall
 -- test below walks a package this one invented.
@@ -1165,7 +1165,16 @@ mdw.saveLayout()
 mdw.teardown()
 dofile(SRC .. "MDW_Examples.lua") -- re-register, so only the flag gates them
 mdw.loadExamples = false
+-- A BUILD is batched like a teardown, and for the same two reasons: every
+-- widget created or docked asked for a save, so one setup wrote the file two
+-- dozen times, and each of those writes recorded a half-built UI.
+mdw.debugMode = true
+ECHOED = {}
 mdw.setup()
+local buildWrites = select(2, table.concat(ECHOED):gsub("Layout saved", ""))
+mdw.debugMode = false
+check(buildWrites == 1,
+  "a whole setup writes the layout once, at the end, not once per widget")
 flushTimers()
 check(mdw.isSetUp, "setup completes with examples disabled")
 check(mdw.widgets["Comm"] == nil, "example widgets not created when disabled")

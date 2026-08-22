@@ -939,18 +939,38 @@ end
 
 --- Save the current layout to file.
 -- Captures dock widths, visibility, and all widget positions/sizes.
+--- Hold layout saves until the matching resume. Nestable, because a consumer
+-- reap can run inside a full teardown, which can run inside a setup.
+--
+-- WHY: every widget created, docked or destroyed asks for a save. Across a
+-- build or a teardown that is dozens of writes of the same file, and every one
+-- of them records a UI mid-change. The state worth keeping is the one at the
+-- end of the operation, not the twenty on the way through.
+function mdw.deferLayoutSaves()
+  mdw._layoutSaveDepth = (mdw._layoutSaveDepth or 0) + 1
+end
+
+--- Release one level of holding. `save` writes once when the last level goes -
+-- true after building something worth remembering, false after dismantling,
+-- where the layout worth keeping is the one from before it started.
+function mdw.resumeLayoutSaves(save)
+  local depth = (mdw._layoutSaveDepth or 1) - 1
+  mdw._layoutSaveDepth = depth > 0 and depth or 0
+  if mdw._layoutSaveDepth == 0 and save then mdw.saveLayout() end
+end
+
 function mdw.saveLayout()
   -- Suppressed while rebuilding stacks on load (the layout is mid-restore;
   -- rebuildStacksFromLayout saves once when done).
   if mdw._restoringLayout then return end
-  -- And while DISMANTLING, for the mirror-image reason. Destroying a widget
-  -- saves the layout, so a teardown wrote the file once per widget as the UI
-  -- came apart - three dozen times in a single package update - and the last
-  -- writes recorded a UI that was already half gone. That degenerate layout is
-  -- what came back on the next build, which is how a group could return
-  -- collapsed after an update and stay that way. The good layout is the one
-  -- saved BEFORE the teardown; nothing during it is worth keeping.
-  if mdw._tearingDown then return end
+  -- And while an operation that touches MANY widgets is in flight. Every
+  -- widget created, docked or destroyed asks for a save, so one setup wrote
+  -- the file two dozen times and one teardown three dozen - for a single
+  -- package update. That is wasteful, and worse: each intermediate write
+  -- records a half-built or half-dismantled UI, and the next build restores
+  -- whatever the last one happened to catch. A group coming back collapsed
+  -- after an update was exactly that. Batched instead - see deferLayoutSaves.
+  if (mdw._layoutSaveDepth or 0) > 0 then return end
 
   local layout = {
     version = 1,
@@ -1390,10 +1410,11 @@ function mdw.setup()
   -- Idempotent: never build a second UI on top of an existing one. Guards
   -- against a package update that deferred teardown, or a double profile-load.
   if mdw.isSetUp then mdw.teardown() end
-  -- Defensive: an error part-way through a teardown would otherwise leave
-  -- saving switched off for the rest of the session, and the player's layout
-  -- would silently stop being remembered.
-  mdw._tearingDown = false
+  -- Defensive: an error part-way through a teardown or a build would otherwise
+  -- leave saves held for the rest of the session, and the player's layout would
+  -- silently stop being remembered.
+  mdw._layoutSaveDepth = 0
+  mdw.deferLayoutSaves()
 
   mdw.echo("Setting up UI...")
   mdw.notify("Initialising")
@@ -1476,6 +1497,10 @@ function mdw.setup()
   end)
 
   mdw.isSetUp = true
+  -- One write for the whole build, now that there is something worth
+  -- remembering: first-run defaults a consumer applied in its onReady are in
+  -- it, and none of the two dozen intermediate states are.
+  mdw.resumeLayoutSaves(true)
   mdw.echo(mdw.config.uiName .. " ready!")
   mdw.notify("Ready")
 end
@@ -1602,10 +1627,10 @@ end
 function mdw.teardown()
   mdw.echo("Cleaning up UI...")
   mdw.notify("Cleaning up")
-  -- Nothing that happens from here on is a layout worth recording: see
-  -- saveLayout. Cleared in setup() as well as at the end, so an error part-way
-  -- through a teardown cannot leave saving switched off for the session.
-  mdw._tearingDown = true
+  -- Nothing from here on is a layout worth recording: see deferLayoutSaves.
+  -- Released at the end WITHOUT writing - the layout worth keeping is the one
+  -- from before the teardown started.
+  mdw.deferLayoutSaves()
 
   -- Consumer cleanup first, while the UI their state points into still
   -- exists - the counterpart of runReadyCallbacks (see mdw.onTeardown).
@@ -1642,7 +1667,7 @@ function mdw.teardown()
   setBorderTop(0)
   setBorderBottom(0)
 
-  mdw._tearingDown = false
+  mdw.resumeLayoutSaves(false)
   mdw.isSetUp = false
   mdw.echo("Cleanup complete")
 end
@@ -1707,9 +1732,9 @@ function mdw.cleanupGame(owner)
   if not owner then return end
   -- A reap is a teardown of one consumer's things, and saves the layout once
   -- per widget as it goes - erasing that consumer from the file it will be
-  -- restored from. Suppressed for the same reason as a full teardown.
-  local wasTearingDown = mdw._tearingDown
-  mdw._tearingDown = true
+  -- restored from. Held for the same reason as a full teardown, and nestable
+  -- because a reap can happen inside one.
+  mdw.deferLayoutSaves()
   -- Widgets first (their emptied groups die with them), then any stacks the
   -- owner created directly that are still alive.
   local named = {}
@@ -1749,9 +1774,7 @@ function mdw.cleanupGame(owner)
   -- The registrations themselves
   if mdw.onReady then mdw.onReady[owner] = nil end
   if mdw.onTeardown then mdw.onTeardown[owner] = nil end
-  -- Restore rather than clear: a reap can run inside a full teardown, and
-  -- clearing here would switch saving back on for the rest of it.
-  mdw._tearingDown = wasTearingDown
+  mdw.resumeLayoutSaves(false)
 end
 
 --- Replace an installed package with a new build of it: uninstall, then

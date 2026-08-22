@@ -10,6 +10,12 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- Layout saves are batched across an operation instead of written once per
+  widget. Building the UI wrote the file two dozen times and tearing it down
+  three dozen, for a single package update; it is now written once at the end
+  of a build, and not at all during a teardown.
+
 ## 0.6.7 - 2026-08-22
 
 ### Fixed
