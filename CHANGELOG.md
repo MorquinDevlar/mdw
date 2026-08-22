@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.7 - 2026-08-22
+
 ### Fixed
 - Tearing the UI down no longer overwrites your saved layout. Destroying a
   widget saves the layout, so a teardown wrote the file once per widget as the
