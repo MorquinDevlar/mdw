@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.5 - 2026-08-22
+
 ### Added
 - Package lifecycle tracing under `mdw.debugMode`: swapping a package, reaping
   a game package's creations, and whether a reinstalled package's `onReady` was
