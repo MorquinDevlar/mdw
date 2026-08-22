@@ -10,6 +10,14 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- Package lifecycle tracing under `mdw.debugMode`: swapping a package, reaping
+  a game package's creations, and whether a reinstalled package's `onReady` was
+  re-run - and if it was not, which condition stopped it. When a game package
+  comes back from an update half-built there is otherwise nothing to look at,
+  and "not registered", "MDW not set up" and "no onReady" look identical from
+  the outside while being entirely different faults. Off unless you turn it on.
+
 ## 0.6.4 - 2026-08-22
 
 ### Fixed

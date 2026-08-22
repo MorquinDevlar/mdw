@@ -183,7 +183,8 @@ function deleteLabel(name) H.labels[name] = nil end
 function enableClickthrough() end
 function enableTrigger() end
 function disableTrigger() end
-function cecho() end
+ECHOED = {} -- cecho text, when a test wants to read what MDW said
+function cecho(text) ECHOED[#ECHOED + 1] = tostring(text or "") end
 function decho() end
 function debugc() end
 function raiseEvent(event, ...)
@@ -1048,6 +1049,18 @@ local strayRebuilt = 0
 mdw.onReady["StrayThing"] = function() strayRebuilt = strayRebuilt + 1 end
 raiseEvent("sysInstallPackage", "StrayThing")
 check(strayRebuilt == 0, "a package MDW does not know about is left alone")
+-- The lifecycle is traceable when debugMode is on, because when a consumer
+-- comes back half-built there is otherwise nothing to look at: "not
+-- registered", "MDW not set up" and "no onReady" look identical from outside
+-- and are entirely different bugs.
+mdw.debugMode = true
+ECHOED = {}
+raiseEvent("sysInstallPackage", "SwapGameUI")
+local trace = table.concat(ECHOED)
+mdw.debugMode = false
+check(trace:find("onInstall SwapGameUI", 1, true) ~= nil
+  and trace:find("registered=", 1, true) ~= nil,
+  "an install traces which of its conditions held")
 mdw.onReady["StrayThing"] = nil
 INSTALL_SCRIPTS = nil
 mdw.onReady["SwapGameUI"] = nil

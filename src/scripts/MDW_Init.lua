@@ -1650,9 +1650,16 @@ function mdw.onInstall(_, package)
     -- every setup - so asserting it here repairs a half-built UI and costs
     -- nothing when there is nothing to repair.
     local entry = mdw.gamePackages and mdw.gamePackages[package]
-    if entry and mdw.isSetUp and mdw.onReady then
-      local owner = (type(entry) == "string" and entry) or package
-      if mdw.onReady[owner] then mdw.runReadyCallbacks(owner) end
+    local owner = (type(entry) == "string" and entry) or package
+    -- Traced because when a consumer comes back half-built there is otherwise
+    -- nothing to look at: each of these conditions failing looks identical
+    -- from the outside, and they are entirely different bugs.
+    mdw.debugEcho("onInstall %s: registered=%s isSetUp=%s onReady=%s",
+      package, tostring(entry ~= nil), tostring(mdw.isSetUp),
+      tostring(mdw.onReady and mdw.onReady[owner] ~= nil))
+    if entry and mdw.isSetUp and mdw.onReady and mdw.onReady[owner] then
+      mdw.debugEcho("onInstall %s: re-running onReady for owner %s", package, owner)
+      mdw.runReadyCallbacks(owner)
     end
     return
   end
@@ -1679,6 +1686,7 @@ end
 -- made INSIDE the owner's onReady callback carry the stamp; anything a game
 -- creates lazily (e.g. from a GMCP handler) is its own to remove.
 function mdw.cleanupGame(owner)
+  mdw.debugEcho("cleanupGame: reaping everything owned by %s", tostring(owner))
   if not owner then return end
   -- Widgets first (their emptied groups die with them), then any stacks the
   -- owner created directly that are still alive.
@@ -1757,10 +1765,14 @@ function mdw.swapPackage(name, path)
   -- A registered game package's creations are reaped by ownership stamp inside
   -- this call (onUninstall below), and its reinstall re-seeds the
   -- registrations and late-joins - the documented consumer pattern.
+  mdw.debugEcho("swapPackage: uninstalling %s", name)
   uninstallPackage(name)
+  mdw.debugEcho("swapPackage: installing %s from %s", name, path)
   if not installPackage(path) then
+    mdw.debugEcho("swapPackage: Mudlet REFUSED the install of %s", name)
     return false, "Mudlet refused the install"
   end
+  mdw.debugEcho("swapPackage: %s installed, Mudlet accepted", name)
   -- Nothing to re-assert here. The package comes back through onInstall below,
   -- on sysInstallPackage - the event that means Mudlet has FINISHED installing
   -- it. Doing it at this point instead would run before the new copy's scripts
