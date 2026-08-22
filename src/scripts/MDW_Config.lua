@@ -595,4 +595,9 @@ mdw.pendingLayouts = {}
 mdw.layoutFile = getMudletHomeDir() .. "/mdw_layout.lua"
 
 -- Debug mode flag
-mdw.debugMode = false
+-- Seeded with `or`, like every other field a consumer or a player may set
+-- before us: a plain assignment reset it on every script load, so turning
+-- tracing on and then REPLACING MDW - the one operation most worth tracing -
+-- switched it off again on the way in, and the trace stopped exactly where it
+-- was needed.
+mdw.debugMode = mdw.debugMode or false

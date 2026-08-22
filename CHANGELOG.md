@@ -10,6 +10,11 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- `mdw.debugMode` survives MDW's own scripts re-running. It was a plain
+  assignment, so switching tracing on and then updating MDW switched it back
+  off on the way in - losing the trace at the one moment it was most wanted.
+
 ## 0.6.5 - 2026-08-22
 
 ### Added

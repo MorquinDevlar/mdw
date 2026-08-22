@@ -1478,4 +1478,13 @@ check(UNINSTALLED[uninstallsBeforeFull + 1] == "TestGameUI"
   and UNINSTALLED[uninstallsBeforeFull + 2] == mdw.packageName,
   "registered game package uninstalled before MDW itself")
 
+-- Last, because it re-runs Config: tracing must survive MDW's own scripts
+-- re-running, which is what a package update does. It used to be a plain
+-- assignment, so switching tracing on and then REPLACING MDW switched it off
+-- again on the way in - losing the trace at the only moment it mattered.
+mdw.debugMode = true
+dofile(SRC .. "MDW_Config.lua")
+check(mdw.debugMode == true, "debugMode survives MDW's own scripts re-running")
+mdw.debugMode = false
+
 print("\nSMOKE PASSED")
