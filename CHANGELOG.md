@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.6.9 - 2026-08-25
+
 ### Changed
 - A game package that destroys its own widgets in its `sysUninstallPackage`
   handler should hold `mdw.deferLayoutSaves()` across that cleanup and release

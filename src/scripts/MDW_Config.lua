@@ -26,7 +26,7 @@ mdw.packageName = "MDW"
 
 -- Package version, mirrored from mfile. Game packages can gate on this from
 -- an onReady callback and fail with a useful message instead of a nil error.
-mdw.version = "0.6.8"
+mdw.version = "0.6.9"
 
 -- Named init registry: mdw.onReady["MyGame"] = function() ... end
 -- setup() runs every entry (sorted by key) each time the UI is built,
