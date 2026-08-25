@@ -394,7 +394,30 @@ register the mapping as the set value: `mdw.gamePackages["MyPkg"] =
 "MyOnReadyKey"`. Only creations made inside `onReady` carry the stamp -
 anything you build lazily (from a GMCP handler, say) remains yours to
 remove. A package *update* survives the reap: your reinstalled scripts
-re-seed the registrations and the late-join line rebuilds your UI.
+re-seed the registrations and the late-join line rebuilds your UI, and MDW
+re-seeds your widgets' saved placement before that rebuild runs, so the player
+gets their layout back rather than your first-run defaults.
+
+**If you destroy your own widgets in your uninstall handler, hold the layout
+save first.** Every `widget:destroy()` asks MDW to save, and a save writes
+`layout.widgets` from the *live* registry - so a handler that dismantles as it
+saves writes a layout file with your widgets missing, and an update then
+restores that. MDW's own reap holds the lock for the same reason, but which of
+the two `sysUninstallPackage` handlers Mudlet runs first is not yours to
+choose:
+
+```lua
+function myGame.onUninstall(_, package)
+  if package ~= "MyPkg" then return end
+  local held = mdw and mdw.deferLayoutSaves and mdw.resumeLayoutSaves
+  if held then mdw.deferLayoutSaves() end
+  -- ... destroy your widgets, remove your bars, withdraw your registrations
+  if held then mdw.resumeLayoutSaves(false) end   -- release WITHOUT writing
+end
+```
+
+`resumeLayoutSaves(false)` releases without writing: the layout worth keeping
+is the one from before the uninstall started, and it is already on disk.
 
 ### Chrome Bars
 

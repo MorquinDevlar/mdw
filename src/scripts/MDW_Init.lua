@@ -1135,6 +1135,48 @@ function mdw.loadLayout()
   return true
 end
 
+--- Re-seed mdw.pendingLayouts from the saved file, for widgets that are not
+-- here right now. The layout a consumer comes back to, when it comes back
+-- WITHOUT a full setup.
+--
+-- pendingLayouts is filled by loadLayout and CONSUMED as it is applied - by
+-- applyPendingLayout at widget creation, by rebuildStacksFromLayout for the
+-- groups. That is right for a setup, which reads the file once and builds
+-- everything from it. It is wrong for a consumer rejoining mid-session (its
+-- own late-join, or MDW re-asserting it on sysInstallPackage): its widgets
+-- were reaped by cleanupGame, the records that described them were spent at
+-- the previous build, and so the rebuild has nothing to restore from and
+-- falls back on whatever first-run defaults the consumer applies. MDW then
+-- saves those defaults, and the player's layout is gone - on every package
+-- update, which is an uninstall immediately followed by an install.
+--
+-- The FILE rather than a snapshot of the reaped widgets, because a consumer
+-- destroys its own widgets in its own sysUninstallPackage handler (MDW's docs
+-- ask it to) and the order of two named handlers on one event is nobody's to
+-- choose: by the time MDW reaps, there may be nothing left to read. The file
+-- is intact whoever went first, PROVIDED the consumer held the layout-save
+-- lock across its cleanup (mdw.deferLayoutSaves - see the README): every
+-- destroy asks MDW to save, and saveLayout writes from the LIVE registry.
+--
+-- Only names with no live widget and no pending record: a widget that is here
+-- has nothing to restore, and a record already waiting is the fresher one.
+-- @return number how many records were re-seeded
+function mdw.reloadPendingLayouts()
+  if not io.exists(mdw.layoutFile) then return 0 end
+  local layout = {}
+  if not pcall(table.load, mdw.layoutFile, layout) then return 0 end
+  mdw.pendingLayouts = mdw.pendingLayouts or {}
+  local seeded = 0
+  for name, saved in pairs(layout.widgets or {}) do
+    if type(saved) == "table" and not mdw.widgets[name] and not mdw.pendingLayouts[name] then
+      mdw.pendingLayouts[name] = saved
+      seeded = seeded + 1
+    end
+  end
+  mdw.debugEcho("reloadPendingLayouts: re-seeded %d record(s)", seeded)
+  return seeded
+end
+
 -- Call this and then reload the profile to get fresh default layouts.
 function mdw.clearLayout()
   if io.exists(mdw.layoutFile) then
@@ -1529,6 +1571,25 @@ function mdw.runReadyCallbacks(name)
     end
     table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
   end
+  -- A RE-JOIN: one consumer coming back while the UI is already up - its own
+  -- late-join, or MDW re-asserting it on sysInstallPackage. Nothing else will
+  -- restore it: only setup() reads the layout, and there is no setup here. So
+  -- bracket the callback with the two halves of a restore - the saved records
+  -- back into pendingLayouts before its widgets are created, the groups
+  -- re-formed after. Without this a consumer comes back in its own first-run
+  -- defaults and the save that follows writes them down.
+  --
+  -- Not during a setup: `name` is nil there and isSetUp is still false, and
+  -- setup does both halves itself, once, around every consumer.
+  local rejoining = (name ~= nil and mdw.isSetUp == true)
+  if rejoining and mdw.reloadPendingLayouts then
+    -- Held across the rebuild for the same reason a teardown holds it: the
+    -- half-built states in between are not layouts worth recording, and one
+    -- of them would be written before the groups are back.
+    mdw.deferLayoutSaves()
+    mdw.reloadPendingLayouts()
+  end
+
   for _, k in ipairs(keys) do
     local fn = mdw.onReady[k]
     if type(fn) == "function" then
@@ -1543,6 +1604,13 @@ function mdw.runReadyCallbacks(name)
         mdw.notify("Error in mdw.onReady['" .. tostring(k) .. "']: " .. tostring(err))
       end
     end
+  end
+
+  if rejoining then
+    -- Releases without writing; rebuildStacksFromLayout saves once at the end,
+    -- which is the first state worth keeping.
+    mdw.resumeLayoutSaves(false)
+    if mdw.rebuildStacksFromLayout then mdw.rebuildStacksFromLayout() end
   end
 end
 

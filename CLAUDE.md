@@ -50,6 +50,26 @@ framework side of that bargain, all deliberate:
   when it differs from the package name). The full uninstall walks
   `mdw.gamePackages` BEFORE deleting the layout file and before MDW's own
   removal. Lazy creations (outside onReady) carry no stamp by design.
+- **A RE-JOIN IS A RESTORE, not a fresh build.** `runReadyCallbacks(name)`
+  called while `isSetUp` is one consumer coming back mid-session - its own
+  late-join, or the re-assert on `sysInstallPackage` - and a package UPDATE is
+  an uninstall immediately followed by an install, so what it comes back to is
+  the player's layout. It used to be the consumer's first-run defaults:
+  `pendingLayouts` is CONSUMED as it is applied and only `setup()` ever reads
+  the file, so a rebuild that was not a profile load had nothing to restore
+  from, and the save that followed wrote those defaults down. So a re-join now
+  brackets the callbacks with the two halves of a restore -
+  `mdw.reloadPendingLayouts()` before, `rebuildStacksFromLayout()` after -
+  under a layout-save hold, and every path that applies a pending record
+  CLEARS it (a spent record left behind shadows the next re-seed, and the
+  widget comes back to where it was two rebuilds ago).
+- Re-seeded from the FILE, never from a snapshot of the reaped widgets,
+  because a consumer destroys its own widgets in its own handler and the order
+  of two named handlers on one event is nobody's to choose - by the time MDW
+  reaps there may be nothing left to read. The consumer's side of that bargain
+  is in the README: hold `mdw.deferLayoutSaves()` across your uninstall
+  cleanup, since every `widget:destroy()` asks MDW to save and `saveLayout`
+  writes from the LIVE registry.
 - **Chrome bars** (`mdw.createBar`) are the only sanctioned way to reserve
   fixed border space beyond the header/prompt bar - `setBorder*` is global
   and `applyBorders` re-applies AGGREGATED heights (`mdw.barsHeight`) on

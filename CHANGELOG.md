@@ -10,6 +10,24 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- A game package that destroys its own widgets in its `sysUninstallPackage`
+  handler should hold `mdw.deferLayoutSaves()` across that cleanup and release
+  it with `mdw.resumeLayoutSaves(false)`: every `widget:destroy()` asks MDW to
+  save, and a save writes from the live registry, so a handler that dismantles
+  as it saves records a layout with its own widgets missing.
+
+### Fixed
+- A game package that is reinstalled - which is what a package update is -
+  comes back to the player's layout instead of its own first-run defaults.
+  Its widgets were reaped on the way out and the saved records that described
+  them had already been spent, so a rebuild that was not a full profile load
+  had nothing to restore from; MDW now re-seeds those records from the saved
+  file and re-forms the groups around a rejoining package.
+- A widget the player had dragged into another package's group - or into one
+  of MDW's own - goes back into it after that package is reinstalled, instead
+  of coming back out into a group of its own.
+
 ## 0.6.8 - 2026-08-22
 
 ### Changed

@@ -1006,6 +1006,76 @@ check(mdw.onReady["ReapGame"] == nil, "owner's onReady registration removed")
 check(mdw.gamePackages["ReapGameUI"] == nil, "co-removal entry consumed by the reap")
 check(mdw.widgets["Items"] ~= nil, "other consumers' widgets untouched by the reap")
 
+-- 7h2. A REAPED CONSUMER COMES BACK TO ITS OWN LAYOUT, without a setup.
+-- A package update is an uninstall immediately followed by an install, so the
+-- consumer that comes back is the same consumer and the layout it comes back
+-- to is the player's. It used to come back to its first-run defaults: its
+-- widgets were reaped, the pendingLayouts records that described them had
+-- been spent at the previous build, and only setup() ever reads the file -
+-- so the rebuild had nothing to restore from, and the save that followed
+-- wrote the defaults down. runReadyCallbacks re-seeds and re-forms around a
+-- re-join now (mdw.reloadPendingLayouts + rebuildStacksFromLayout).
+local function seedRejoinGame()
+  mdw.gamePackages["RejoinGameUI"] = "RejoinGame"
+  mdw.onReady["RejoinGame"] = function()
+    mdw.Widget:new({ name = "RejoinAlpha", dock = "left" })
+    mdw.Widget:new({ name = "RejoinBeta", dock = "left" })
+  end
+end
+seedRejoinGame()
+mdw.runReadyCallbacks("RejoinGame")
+-- What the player then did with them: grouped the two, bumped one's font,
+-- closed the other.
+mdw.groupWidgetsIntoStack({ "RejoinAlpha", "RejoinBeta" }, { dock = "left", name = "RejoinPair" })
+mdw.setWidgetFontSize("RejoinAlpha", mdw.config.contentFontSize + 4)
+mdw.hideWidget("RejoinBeta")
+mdw.saveLayout()
+local rejoinFont = mdw.widgets["RejoinAlpha"].fontAdjust
+check(mdw.widgets["RejoinAlpha"].stackId == "RejoinPair" and rejoinFont ~= 0,
+  "a consumer's widgets, grouped and resized by the player")
+
+raiseEvent("sysUninstallPackage", "RejoinGameUI")
+check(mdw.widgets["RejoinAlpha"] == nil and mdw.widgets["RejoinPair"] == nil,
+  "the reap takes the widgets and the group they were in")
+-- Mudlet runs the new copy's scripts, which re-seed the registration; the
+-- consumer late-joins, or MDW re-asserts it. Either way: no setup().
+seedRejoinGame()
+local setupsBeforeRejoin = SETUPS
+mdw.runReadyCallbacks("RejoinGame")
+check(SETUPS == setupsBeforeRejoin, "the re-join is not a setup - nothing reloaded the UI")
+check(mdw.widgets["RejoinAlpha"] ~= nil and mdw.widgets["RejoinAlpha"].stackId == "RejoinPair",
+  "and the player's grouping is what the consumer comes back to")
+check(mdw.widgets["RejoinAlpha"].fontAdjust == rejoinFont,
+  "with the per-widget font size they set")
+check(mdw.widgets["RejoinBeta"].visible == false, "and the widget they closed still closed")
+
+-- The group a rejoining member belongs to can still BE here - it belongs to
+-- another owner, or to MDW itself, so the reap never touched it. Join it;
+-- re-wrapping the member in a fresh home group is how a widget the player had
+-- dragged into someone else's group came back out of it.
+local hostWidget = mdw.Widget:new({ name = "RejoinHostee", dock = "left" }) -- unowned
+mdw.groupWidgetsIntoStack({ "RejoinHostee" }, { dock = "left", name = "RejoinHost" })
+mdw.addToStack("RejoinHost", "RejoinAlpha")   -- dragged into someone else's group
+mdw.saveLayout()
+raiseEvent("sysUninstallPackage", "RejoinGameUI")
+check(mdw.widgets["RejoinHost"] ~= nil and mdw.widgets["RejoinAlpha"] == nil,
+  "a group nobody reaped outlives the consumer whose widget was in it")
+seedRejoinGame()
+mdw.runReadyCallbacks("RejoinGame")
+check(mdw.widgets["RejoinAlpha"].stackId == "RejoinHost",
+  "a rejoining member joins the group that is already standing")
+
+-- Leave the session as it was found.
+raiseEvent("sysUninstallPackage", "RejoinGameUI")
+if mdw.widgets["RejoinHost"] then mdw.destroyStack(mdw.widgets["RejoinHost"]) end
+if mdw.widgets["RejoinHostee"] then hostWidget:destroy() end
+mdw.pendingLayouts["RejoinAlpha"] = nil
+mdw.pendingLayouts["RejoinBeta"] = nil
+mdw.pendingLayouts["RejoinPair"] = nil
+mdw.pendingLayouts["RejoinHost"] = nil
+mdw.pendingLayouts["RejoinHostee"] = nil
+mdw.saveLayout()
+
 -- 7a2. mdw.swapPackage: replacing a game package on its behalf. A package
 -- cannot reliably swap ITSELF - the code doing it is inside the thing being
 -- uninstalled, so it cannot check the result or report a failure, and Mudlet

@@ -577,26 +577,46 @@ function mdw.rebuildStacksFromLayout()
         for _, memberName in ipairs(present) do
           mdw.widgets[memberName]._pendingStackId = nil
           mdw.addToStack(name, memberName)
+          -- Spent: the record has been applied. Left behind it shadows the
+          -- one a later re-seed would read from the file, and the widget
+          -- comes back to where it was two rebuilds ago
+          -- (mdw.reloadPendingLayouts skips a name that already has one).
+          mdw.pendingLayouts[memberName] = nil
         end
         if saved.activeMember and stack.tabsByName[saved.activeMember] then
           mdw.selectStackTab(stack, saved.activeMember)
         end
+        mdw.pendingLayouts[name] = nil
       end
     end
   end
 
-  -- Fallback: any member whose stack record was missing -> restore its slot and
-  -- re-wrap it in a fresh single-tab home group (never leave a widget bare).
-  for _, widget in pairs(mdw.widgets) do
-    if widget._pendingStackId then
+  -- Fallback: any member left over. Its group may simply already BE here - the
+  -- loop above only builds groups that are MISSING, and a consumer rejoining
+  -- mid-session finds the ones it was grouped into still standing whenever
+  -- they belong to another owner or to MDW itself. Join it, rather than
+  -- re-wrapping it standalone: re-wrapping is how a widget the player had
+  -- dragged into someone else's group came back out of it.
+  for name, widget in pairs(mdw.widgets) do
+    local pendingStack = widget._pendingStackId
+    if pendingStack then
       widget._pendingStackId = nil
-      local s = widget._preStackSlot
-      widget._preStackSlot = nil
-      if widget.container then widget.container:show() end
-      if s and s.docked then
-        mdw.applySlot(widget, s)
+      local host = mdw.widgets[pendingStack]
+      mdw.pendingLayouts[name] = nil -- spent either way; see the loop above
+      if host and host.isStack and not widget.isStack then
+        if widget.container then widget.container:show() end
+        mdw.addToStack(pendingStack, name)
+      else
+        -- Its group really is gone -> restore its slot and re-wrap it in a
+        -- fresh single-tab home group (never leave a widget bare).
+        local s = widget._preStackSlot
+        widget._preStackSlot = nil
+        if widget.container then widget.container:show() end
+        if s and s.docked then
+          mdw.applySlot(widget, s)
+        end
+        mdw.wrapInHomeStack(widget)
       end
-      mdw.wrapInHomeStack(widget)
     end
   end
 
