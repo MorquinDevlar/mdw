@@ -10,6 +10,18 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.setWidgetRows` takes a `slider` row type: a gauge the player sets by
+  clicking or dragging the bar, or by rolling the wheel over it, so a package
+  can put volume and other 0..max settings in a widget instead of behind a
+  typed command. The game gets the committed value once per gesture through
+  `onChange`, and every value a drag passes through via the optional
+  `onPreview`; a server push landing mid-drag no longer fights the player's
+  hand.
+- `mdw.rowTypes` names the row types the running MDW renders, so a package can
+  declare a plain gauge where a slider is not available instead of sending a
+  row type the framework does not know.
+
 ## 0.6.9 - 2026-08-25
 
 ### Changed

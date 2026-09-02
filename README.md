@@ -211,7 +211,7 @@ shows: it sizes the bar to exactly `lines` text lines plus any gauge row,
 shrinking as readily as growing - a bar showing only gauges collapses
 around them. The splitter still lets the player re-adjust by hand.
 
-### Rows Inside a Widget (Gauges and Text)
+### Rows Inside a Widget (Gauges, Sliders and Text)
 
 For widgets that are really a stack of bars and labels (combat panels,
 group rosters), `mdw.setWidgetRows` renders real Geyser elements at the top
@@ -235,7 +235,7 @@ strip - the web clients' space-between header line (name on the left, rank
 on the right). Over a text row it simply overlays: row labels use the
 proportional UI font, so there is no column to split at, each text runs from
 its own edge, and the row's `onClick` still belongs to the whole strip. Over
-a gauge row it carves out a slice instead (`rightWidth`, default
+a gauge or slider row it carves out a slice instead (`rightWidth`, default
 `cfg.rowRightWidth`) - a bar cannot run under the words - never taking more
 than half the row. A text row may also carry its own `css`, which is how a
 rule between blocks is drawn:
@@ -244,6 +244,39 @@ rule between blocks is drawn:
 { id = "sep", type = "text", text = "", height = 6,
   css = "background-color: rgba(0,0,0,0%); border-top: 1px solid rgb(58,53,48);" }
 ```
+
+A `slider` row is a gauge the player can set - a volume control, a brightness
+setting, anything the game holds a 0..`max` number for:
+
+```lua
+{ id = "vol_music", type = "slider", value = 70, max = 100, text = "Music 70",
+  front = fillCss, back = trackCss, step = 5,
+  onChange = function(value) send("music volume " .. value) end,
+  onPreview = function(value) relabel("Music " .. value) end }
+```
+
+Clicking the bar sets the value at the click position, dragging keeps setting
+it while the button is held, and the mouse wheel steps by `step` (default
+`cfg.rowSliderStep`, 5) - up increases, down decreases, both clamped to
+0..`max` (`max` defaults to 100). There is no knob: the fill follows the
+pointer. Its callbacks:
+
+| Callback | When |
+|----------|------|
+| `onChange(value)` | Once per gesture, with the committed integer: the mouse release that ends a click or a drag, and each wheel notch that actually moves the value |
+| `onPreview(value)` | Optional. Each value a drag passes through, so a renderer can relabel the bar (or apply the volume live) while the player is still holding the button |
+
+`mdw.rowTypes` names the row types the running MDW renders
+(`{ text = true, gauge = true, slider = true }`). Check it the way you check any
+other capability - `mdw.rowTypes and mdw.rowTypes.slider` - and declare a plain
+`gauge` in the slider's place on a build that lacks it, so a volume row still
+shows its level there.
+
+The row's `text` is always the game's to write - MDW never invents a label -
+so use `onPreview` to keep it in step with the pointer. While a drag is armed,
+a `setWidgetRows` call takes the row's new `text`, styles and callbacks but
+leaves the *value* alone: a server push landing mid-drag must not fight the
+hand. The first repaint after the release applies whatever the game declares.
 
 Call it from your renderer on every GMCP push: rows are diffed by their
 `(type, id)` sequence and updated in place when unchanged, so per-combat-beat

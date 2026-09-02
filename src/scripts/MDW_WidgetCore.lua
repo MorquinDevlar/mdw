@@ -269,8 +269,8 @@ end
 
 ---------------------------------------------------------------------------
 -- WIDGET ROW BLOCK
--- A game package can render a stack of text and gauge rows at the top of a
--- plain widget's content area (mdw.setWidgetRows) - real Geyser elements,
+-- A game package can render a stack of text, gauge and slider rows at the top
+-- of a plain widget's content area (mdw.setWidgetRows) - real Geyser elements,
 -- so gauges look like gauges and names stay clickable. The console keeps
 -- whatever space remains below. MDW owns geometry and lifecycle; the game
 -- owns content, styles, and values. Renderers may call setWidgetRows on
@@ -298,7 +298,9 @@ end
 --- Delete a widget's row elements and forget the declaration.
 function mdw.destroyWidgetRows(widget)
   for _, rec in pairs(widget._rows or {}) do
-    if rec.type == "gauge" then
+    -- Gauges and sliders are both a Geyser.Gauge: three real labels behind
+    -- one container, and the container is not a Qt object to delete.
+    if rec.type ~= "text" then
       mdw.deleteElement(rec.el.text)
       mdw.deleteElement(rec.el.front)
       mdw.deleteElement(rec.el.back)
@@ -312,10 +314,90 @@ function mdw.destroyWidgetRows(widget)
   widget._rowSig = nil
 end
 
+-- A slider is a gauge the player sets. Everything mouse-side happens on the
+-- gauge's TOP label (Geyser builds back, front, text in that order, so `text`
+-- is the one Qt hands events to), and the fill simply follows the pointer -
+-- there is no knob, so there is no grab offset to carry. Qt keeps delivering
+-- move and release to the label that took the press, so a drag that wanders
+-- off the row still commits. The handlers read the RECORD, the way a text
+-- row's onClick does, so an in-place update swaps them without rebinding.
+
+local function sliderMax(rec)
+  local max = tonumber(rec.max) or 0
+  -- A slider without a usable max is a 0-100 percentage, not a 0-1 switch
+  -- (the gauge row's clamp), which is what a volume or brightness row wants.
+  if max <= 0 then max = 100 end
+  return max
+end
+
+local function sliderClamp(value, max)
+  value = math.floor((tonumber(value) or 0) + 0.5)
+  if value < 0 then return 0 end
+  if value > max then return max end
+  return value
+end
+
+--- Repaint the bar at `value` without telling the game (a drag's preview).
+local function sliderPaint(rec, value)
+  rec.value = value
+  rec.el:setValue(value, sliderMax(rec), rec.text)
+end
+
+local function sliderValueAt(rec, event)
+  local width = rec.el.text:get_width() or 0
+  if width <= 0 then return nil end
+  local max = sliderMax(rec)
+  return sliderClamp(((event and event.x) or 0) / width * max, max)
+end
+
+local function bindSliderCallbacks(rec, labelName)
+  setLabelClickCallback(labelName, function(event)
+    if event and event.button and event.button ~= "LeftButton" then return end
+    local value = sliderValueAt(rec, event)
+    if not value then return end
+    -- The press sets the value AND arms the drag: press-then-drag is one
+    -- gesture, so the commit waits for the release whether or not it moved.
+    rec.dragging = true
+    sliderPaint(rec, value)
+  end)
+
+  setLabelMoveCallback(labelName, function(event)
+    if not rec.dragging then return end
+    local value = sliderValueAt(rec, event)
+    if not value or value == rec.value then return end
+    sliderPaint(rec, value)
+    if rec.onPreview then rec.onPreview(value) end
+  end)
+
+  setLabelReleaseCallback(labelName, function()
+    if not rec.dragging then return end
+    rec.dragging = nil
+    if rec.onChange then rec.onChange(rec.value) end
+  end)
+
+  -- Guarded like enableClickthrough: a Mudlet without the wheel callback
+  -- still gets a working click-and-drag slider.
+  if setLabelWheelCallback then
+    setLabelWheelCallback(labelName, function(event)
+      local delta = tonumber(event and event.angleDeltaY) or 0
+      if delta == 0 then return end
+      local max = sliderMax(rec)
+      local step = tonumber(rec.step) or mdw.config.rowSliderStep
+      local value = sliderClamp((rec.value or 0) + (delta > 0 and step or -step), max)
+      -- The wheel keeps turning at either end; committing a value that did
+      -- not move would spam the game's setter with what it already has.
+      if value == rec.value then return end
+      sliderPaint(rec, value)
+      if rec.onChange then rec.onChange(value) end
+    end)
+  end
+end
+
 local function createRowElement(widget, row)
   local cfg = mdw.config
   local name = "MDW_" .. widget.name .. "_Row_" .. tostring(row.id)
-  local rec = { type = (row.type == "text") and "text" or "gauge", id = row.id }
+  local rowType = (row.type == "text" or row.type == "slider") and row.type or "gauge"
+  local rec = { type = rowType, id = row.id }
   local function textLabel(elName)
     local label = mdw.trackElement(Geyser.Label:new({
       name = elName, x = 0, y = 0, width = 10, height = rowHeight(cfg, row),
@@ -344,6 +426,12 @@ local function createRowElement(widget, row)
     if row.fontSize then gauge:setFontSize(row.fontSize) end
     if row.fgColor then gauge:setFgColor(row.fgColor) end
     rec.el = gauge
+    if rec.type == "slider" then
+      -- The cursor goes on the top label, not the gauge: a Geyser.Gauge is a
+      -- container, and only its labels are Qt widgets with a cursor to set.
+      gauge.text:setCursor(mudlet.cursor.PointingHand)
+      bindSliderCallbacks(rec, gauge.text.name)
+    end
   end
   -- rightText shares the row's strip. Over a TEXT row it is a second label
   -- on the same rectangle - row labels use the proportional UI font, so
@@ -376,16 +464,27 @@ local function applyRowContent(rec, row)
     rec.rightText = row.rightText
     rec.right:decho(row.rightText or "")
   end
-  if rec.type == "gauge" then
+  if rec.type ~= "text" then
     -- Stylesheets restyle only on change (string compare), so band shifts
     -- cost one restyle at the crossing rather than one per payload.
     if row.front ~= rec.front or row.back ~= rec.back then
       rec.front, rec.back = row.front, row.back
       rec.el:setStyleSheet(row.front, row.back, row.textStyle)
     end
-    local cur, max = tonumber(row.value) or 0, tonumber(row.max) or 0
-    if max <= 0 then max = 1 end
-    rec.el:setValue(cur, max, row.text)
+    if rec.type == "slider" then
+      rec.max, rec.step, rec.text = row.max, row.step, row.text
+      rec.onChange, rec.onPreview = row.onChange, row.onPreview
+      -- A push landing mid-drag must not fight the hand: the pointer owns the
+      -- value until the release, and the next repaint after it applies
+      -- whatever the game declares. The LABEL is still the game's, so a
+      -- renderer driven from onPreview can relabel the bar as it moves.
+      sliderPaint(rec, rec.dragging and rec.value
+        or sliderClamp(row.value, sliderMax(rec)))
+    else
+      local cur, max = tonumber(row.value) or 0, tonumber(row.max) or 0
+      if max <= 0 then max = 1 end
+      rec.el:setValue(cur, max, row.text)
+    end
   else
     -- Restyles are string-compared like the gauges': an unchanged css
     -- string never touches Qt (rules between blocks repaint every push).
@@ -407,14 +506,26 @@ local function applyRowContent(rec, row)
   end
 end
 
+--- The row types this MDW build renders. A consumer checks existence here the
+-- way it checks every other capability (`mdw.rowTypes and mdw.rowTypes.slider`)
+-- and adapts: on a build without sliders a volume row is declared as a plain
+-- gauge instead of arriving as an unknown type.
+mdw.rowTypes = { text = true, gauge = true, slider = true }
+
 --- Declare (or clear, with nil/{}) a plain widget's row block. Each row:
 --   { id, type = "text", text = <decho string>, rightText?, onClick?,
 --     height?, fontSize?, css? }  -- css styles the row itself (a rule
 --     between blocks, a highlighted line); default transparent
 --   { id, type = "gauge", value, max, text, front, back, fgColor?, fontSize?,
 --     height?, rightText?, rightWidth? }
+--   { id, type = "slider", value, max, text, front, back, step?, onChange?,
+--     onPreview?, <every gauge field> }  -- a gauge the player sets: click or
+--     drag the bar, or wheel over it by `step` (cfg.rowSliderStep default).
+--     onChange gets the committed integer once per gesture; onPreview, if
+--     given, gets each value the drag passes through.
 -- rightText is right-aligned on the same row: overlaid on a text row,
--- carved out of a gauge row (rightWidth px, cfg.rowRightWidth by default).
+-- carved out of a gauge or slider row (rightWidth px, cfg.rowRightWidth by
+-- default).
 -- Safe to call from a renderer on every repaint - see the block comment.
 function mdw.setWidgetRows(name, rows)
   local widget = mdw.widgets[name]
@@ -475,11 +586,11 @@ function mdw.layoutWidgetRows(widget)
         if rec.right then rec.right:hide() end
         rec.overflowed = true
       else
-        -- A gauge cannot share by overlapping - the bar would run under the
-        -- words - so its right label takes a reserved slice (never more than
-        -- half the row, so a thin dock still shows a bar).
+        -- A gauge (or slider) cannot share by overlapping - the bar would run
+        -- under the words - so its right label takes a reserved slice (never
+        -- more than half the row, so a thin dock still shows a bar).
         local elWidth, rightX, rightWidth = width, cfg.contentPaddingLeft, width
-        if rec.right and rec.type == "gauge" then
+        if rec.right and rec.type ~= "text" then
           rightWidth = math.min(row.rightWidth or cfg.rowRightWidth,
             math.floor(width / 2))
           elWidth = width - rightWidth

@@ -130,10 +130,22 @@ function Geyser.Gauge:new(props, container)
   g.back = newElement({ name = props.name .. "_back" }, g)
   g.front = newElement({ name = props.name .. "_front" }, g)
   g.text = newElement({ name = props.name .. "_text" }, g)
+  -- Geyser sizes the three labels with the gauge and clips the FRONT one to
+  -- the value; the stub propagates because a slider row reads the top label's
+  -- width to turn a click position into a value.
+  function g.resize(gauge, w, h)
+    Element.resize(gauge, w, h)
+    gauge.back:resize(gauge._w, gauge._h)
+    gauge.text:resize(gauge._w, gauge._h)
+    local max = gauge._max
+    local frac = (max and max > 0) and math.min(1, (gauge._value or 0) / max) or 0
+    gauge.front:resize(gauge._w * frac, gauge._h)
+  end
   function g.setValue(gauge, cur, max, text)
     if max ~= nil and max <= 0 then return nil end
     gauge._value, gauge._max = cur, max
     if text then gauge.text._echoed = { text } end
+    gauge:resize(gauge._w, gauge._h)
     return true
   end
   function g.setStyleSheet(gauge, css, cssback, cssText)
@@ -234,6 +246,7 @@ end
 setLabelClickCallback = cbSet("click")
 setLabelMoveCallback = cbSet("move")
 setLabelReleaseCallback = cbSet("release")
+setLabelWheelCallback = cbSet("wheel")
 setLabelOnEnter = cbSet("enter")
 setLabelOnLeave = cbSet("leave")
 
@@ -721,6 +734,9 @@ mdw.setPromptGauges(nil)
 check(H.labels["MDW_PromptGauge_hp_back"] == nil, "clearing the row deletes the gauge labels")
 check(mdw.promptBar._y == consoleY, "prompt console reclaims the row's space")
 
+check(mdw.rowTypes and mdw.rowTypes.text and mdw.rowTypes.gauge and mdw.rowTypes.slider,
+  "rowTypes advertises the text, gauge and slider row types")
+
 -- 7d. Widget row block (setWidgetRows): text + gauge rows above the console,
 -- diffed in place by (type,id) signature, hidden on overflow, cleared without
 -- a trace.
@@ -831,6 +847,92 @@ check(H.labels["MDW_Items_Row_hdr_Right"] == nil,
 mdw.setWidgetRows("Items", nil)
 check(H.labels["MDW_Items_Row_hdr"] == nil, "clearing rows deletes their labels")
 check(items.content._y == itemsConsoleY, "console reclaims the block's space")
+
+-- A slider row is a gauge the player sets: the mouse works on the gauge's TOP
+-- label, a press arms a drag, moves preview, the release commits once, and the
+-- wheel steps and commits on the spot.
+local committed, previewed = {}, {}
+local function sliderRow(value, extra)
+  local row = { id = "vol", type = "slider", value = value, max = 100, step = 5,
+    text = "Music " .. value,
+    front = "background-color: teal;", back = "background-color: navy;",
+    onChange = function(v) committed[#committed + 1] = v end,
+    onPreview = function(v) previewed[#previewed + 1] = v end }
+  for k, v in pairs(extra or {}) do row[k] = v end
+  return { row }
+end
+mdw.setWidgetRows("Items", sliderRow(70))
+local slider = items._rows["vol"].el
+check(H.labels["MDW_Items_Row_vol_back"] ~= nil and H.labels["MDW_Items_Row_vol_front"] ~= nil
+  and H.labels["MDW_Items_Row_vol_text"] ~= nil, "a slider row builds the three gauge labels")
+check(slider._value == 70 and slider._max == 100 and slider.front._w == slider._w * 0.7,
+  "the fill shows the value against max")
+local sliderW = slider.text:get_width()
+check(sliderW > 0, "the top label is the full width of the bar")
+-- A click is a set: the value comes from the press position, and the gesture
+-- commits on the release that ends it.
+fire("MDW_Items_Row_vol_text", "click", { x = sliderW / 2, button = "LeftButton" })
+check(slider._value == 50, "a click moves the fill to the click position")
+fire("MDW_Items_Row_vol_text", "release", {})
+check(#committed == 1 and committed[1] == 50 and #previewed == 0,
+  "a click with no move commits its rounded value once and previews nothing")
+-- A drag: previews per move, one commit at the release with the last value.
+fire("MDW_Items_Row_vol_text", "click", { x = sliderW / 2, button = "LeftButton" })
+fire("MDW_Items_Row_vol_text", "move", { x = sliderW * 0.8 })
+fire("MDW_Items_Row_vol_text", "move", { x = sliderW * 0.2 })
+check(#committed == 1 and #previewed == 2 and previewed[2] == 20 and slider._value == 20,
+  "moves preview and move the fill without committing")
+mdw.setWidgetRows("Items", sliderRow(95))
+check(slider._value == 20, "a repaint landing mid-drag does not fight the hand")
+check(slider.text._echoed[1] == "Music 95", "but the label is still the game's to write")
+fire("MDW_Items_Row_vol_text", "release", {})
+check(#committed == 2 and committed[2] == 20, "the release commits once, with the last value")
+mdw.setWidgetRows("Items", sliderRow(95))
+check(slider._value == 95, "the first repaint after the release applies the game's value")
+-- The wheel steps by `step` and commits immediately, clamped at both ends.
+fire("MDW_Items_Row_vol_text", "wheel", { angleDeltaY = 120 })
+check(slider._value == 100 and #committed == 3 and committed[3] == 100,
+  "a wheel notch up moves one step and commits on the spot")
+fire("MDW_Items_Row_vol_text", "wheel", { angleDeltaY = 120 })
+check(slider._value == 100 and #committed == 3, "the wheel clamps at max without re-committing")
+fire("MDW_Items_Row_vol_text", "wheel", { angleDeltaY = -120 })
+check(slider._value == 95 and committed[4] == 95, "a wheel notch down moves one step back")
+mdw.setWidgetRows("Items", sliderRow(0))
+fire("MDW_Items_Row_vol_text", "wheel", { angleDeltaY = -120 })
+check(slider._value == 0 and #committed == 4, "the wheel clamps at zero")
+fire("MDW_Items_Row_vol_text", "click", { x = sliderW, button = "RightButton" })
+check(slider._value == 0 and #committed == 4, "the right button is not a slider gesture")
+-- Every element of a slider row is in the z-order pass, and its rightText
+-- carves the same reserved slice a gauge's does. rightText is part of the row
+-- SHAPE, so this rebuilds the row (and rebinds the drag onto the new labels).
+mdw.setWidgetRows("Items", sliderRow(50, { rightText = "<136,136,136>50%" }))
+local volSlider = items._rows["vol"].el
+local volRight = H.labels["MDW_Items_Row_vol_Right"]
+check(volSlider ~= slider and volRight ~= nil
+  and volSlider._w == volRight._x - mdw.config.contentPaddingLeft,
+  "a slider's rightText carves the same slice off the bar as a gauge's")
+fire("MDW_Items_Row_vol_text", "click", { x = volSlider.text:get_width(), button = "LeftButton" })
+fire("MDW_Items_Row_vol_text", "release", {})
+check(committed[#committed] == 100, "the rebuilt row's labels carry the slider gestures")
+H.raised = {}
+mdw.raiseWidgetElements(items)
+local volRaised = {}
+for i, n in ipairs(H.raised) do volRaised[n] = volRaised[n] or i end
+check(volRaised["MDW_Items_Row_vol_back"] ~= nil and volRaised["MDW_Items_Row_vol_front"] ~= nil
+  and volRaised["MDW_Items_Row_vol_text"] ~= nil,
+  "a slider's three labels are raised with the row")
+-- The type is part of the row signature, so the same id in the other shape is
+-- a rebuild, not an update.
+mdw.setWidgetRows("Items", { { id = "vol", type = "gauge", value = 10, max = 100,
+  text = "Music 10", front = "background-color: teal;", back = "background-color: navy;" } })
+check(items._rows["vol"].el ~= volSlider, "a gauge in a slider's place recreates the row")
+mdw.setWidgetRows("Items", sliderRow(30))
+mdw.setWidgetRows("Items", nil)
+check(H.labels["MDW_Items_Row_vol_back"] == nil and H.labels["MDW_Items_Row_vol_front"] == nil
+  and H.labels["MDW_Items_Row_vol_text"] == nil and H.labels["MDW_Items_Row_vol_Right"] == nil
+  and next(items._rows) == nil and items._rowDefs == nil,
+  "clearing a slider row leaves none of its elements behind")
+check(items.content._y == itemsConsoleY, "console reclaims the slider row's space")
 
 -- Rows created while their widget sits behind another stack tab must not
 -- paint over the active member: fresh Geyser elements are visible even

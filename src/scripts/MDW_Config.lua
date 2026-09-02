@@ -134,11 +134,12 @@ mdw.config = {
   promptGaugeMaxWidth = 300, -- Cap on a single gauge's width (px)
 
   -- Layout: Widget row block (mdw.setWidgetRows - a game package can render
-  -- a stack of text and gauge rows at the top of a widget's content area)
-  rowGaugeHeight = 16,  -- Default height of a gauge row (px)
+  -- a stack of text, gauge and slider rows at the top of a widget's content area)
+  rowGaugeHeight = 16,  -- Default height of a gauge or slider row (px)
   rowTextHeight = 18,   -- Default height of a text row (px)
   rowGap = 3,           -- Vertical gap between rows (px)
   rowRightWidth = 64,   -- Slice a gauge row's rightText carves off (px)
+  rowSliderStep = 5,    -- Units one wheel notch moves a slider row (row.step overrides)
   menuButtonSize = 20,  -- Size of the settings (vertical-ellipsis) buttons (px)
   menuButtonFontSize = 14, -- Glyph size of those buttons (pt; the web uses 16px)
 

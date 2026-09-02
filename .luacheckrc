@@ -62,6 +62,7 @@ read_globals = {
   "setLabelOnEnter",
   "setLabelOnLeave",
   "setLabelReleaseCallback",
+  "setLabelWheelCallback",
   "tempTimer",
   "uninstallPackage", "installPackage",
   io = { fields = { "exists" } },
