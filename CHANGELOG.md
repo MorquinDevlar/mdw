@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.8.0 - 2026-09-04
+
 ### Added
 - `mdw.floatWidget(name, opts)` takes `opts.anchor` - `topleft`, `topright`,
   `bottomleft`, `bottomright` or `center` - and an optional `opts.margin`, so a

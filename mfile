@@ -1,6 +1,6 @@
 {
   "package": "MDW",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "Morquin",
   "title": "Mudlet Dockable Widgets",
   "description": "MDW gives your Mudlet profile a custom sidebar UI. Create widget panels for vitals, inventory, communication channels, the mapper, or anything else you want visible at a glance.\n\nDrag widgets by their title bars to reposition them, dock to left or right sidebars, place multiple widgets side-by-side in the same row, or float them freely over the main display.\n\nTabbed widgets let you organize communication channels with an optional 'all' tab that mirrors messages from every channel. A prompt bar at the bottom displays your MUD prompt with colors. Header dropdown menus let you toggle sidebar and widget visibility.\n\nLayouts persist automatically across profile reloads and package updates, preserving dock positions, sizes, row arrangements, width ratios, active tabs, and visibility state. All colors, dimensions, and behavior are configurable.\n\nhttps://github.com/MorquinDevlar/mdw",
