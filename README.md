@@ -361,6 +361,31 @@ z-order), drawn as a rounded card with the title above a divider line. Pass
 the theme accent; pass `{ text = "iron sword", color = { 200, 200, 200 } }`
 to render it in the clicked item's own color instead.
 
+### Placing a Float in a Corner
+
+A panel that belongs in a corner rather than in a dock - a HUD readout, a
+diagnostics pane - is floated with an anchor:
+
+```lua
+mdw.floatWidget("Connection", { anchor = "topright" })
+```
+
+The corner is a corner of the **main console area**: what is left once the
+visible sidebars, the header, the prompt bar and any chrome bars are taken
+out. Turn a sidebar off and the same anchor reaches the window edge. The
+positions themselves are available as `mdw.floatPos(anchor, w, h, margin)` if
+you are placing something of your own.
+
+Anchored placement is exact - no cascade. A centred float steps down-and-left
+past any float already there so titles stay visible, because a centred reveal
+has no opinion about where it lands; a caller who named a corner does, so two
+panels anchored to the same corner sit on top of each other.
+
+Placement is a one-off, not a rule: MDW saves a float's `x`/`y` in the layout,
+and the scripted reveal (`mdw.showWidget`) brings a hidden float back where it
+was. So anchor it once, on your first run, and the player's own arrangement
+wins from then on.
+
 ### Reacting Without Owning Widgets
 
 If a script only needs to *react* to MDW coming up (start GMCP feeds, hook
@@ -671,7 +696,7 @@ echoing anything themselves, so your package owns every word the player sees.
 | `mdw.showWidget(name)` | Reveal and front a widget, putting it BACK where it was - its old group, else the end of its old dock |
 | `mdw.hideWidget(name)` | Close its tab (siblings stay) or hide a lone group |
 | `mdw.focusWidget(name)` | Show it and raise its group above other floats |
-| `mdw.floatWidget(name)` | Give it its own group, floating centred |
+| `mdw.floatWidget(name, opts)` | Give it its own group, floating. Centred by default; `opts.anchor` (`"topleft"`, `"topright"`, `"bottomleft"`, `"bottomright"`, `"center"`) places it in a corner of the main console area instead, `opts.margin` px from the edges (`cfg.floatMargin`, 10). An anchor moves a group that is already floating, where a bare call reports `"already"` |
 | `mdw.dockWidget(name, side, position)` | Its own group docked left/right, at the `"top"` or (default) bottom |
 | `mdw.groupWidget(name, targetName)` | Add it to another widget's group as a tab, fronted |
 | `mdw.ungroupWidget(name)` | Pull it out into its own group, directly below the old one |

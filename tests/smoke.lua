@@ -1513,6 +1513,46 @@ check(kbBetaGroup.row == kbGroup.row + 1, "and lands directly below its old grou
 mdw.floatWidget("KeyGamma")
 check(kgGroup.docked == nil and kgGroup.visible ~= false, "floatWidget leaves the group floating")
 check(select(2, mdw.floatWidget("KeyGamma")) == "already", "floating an already-floating group reports already")
+
+-- 10d2. Anchored floats: the corner a consumer asks for is a corner of the
+-- MAIN CONSOLE AREA - what is left once the sidebars, the header, the prompt
+-- bar and any chrome bars are taken out - not of the window.
+do
+  local margin = mdw.config.floatMargin
+  local topChrome = mdw.config.headerHeight + mdw.barsHeight("top")
+  local box = kgGroup.container
+  check(select(2, mdw.floatWidget("KeyGamma", { anchor = "nowhere" })) == "invalid",
+    "an unknown anchor is refused")
+  check(select(2, mdw.floatWidget("KeyGamma", { anchor = "topright" })) == "ok",
+    "an anchor moves a group that is already floating, unlike a bare float")
+  check(box:get_y() == topChrome + margin, "topright sits a margin below the chrome")
+  check(box:get_x() + box:get_width()
+    == 1600 - mdw.config.rightDockWidth - margin,
+    "and a margin in from the right sidebar's edge")
+  -- The area is what moves when the chrome does: with the sidebar off, the
+  -- same anchor reaches the window edge. Read off floatPos rather than by
+  -- toggling the sidebar for real - that stows and re-floats every widget in
+  -- it, and the dock rows later sections assert on are not this test's to
+  -- rearrange.
+  mdw.visibility.rightSidebar = false
+  check(mdw.floatPos("topright", 200, 100) == 1600 - 200 - margin,
+    "with the right sidebar off the same anchor reaches the window edge")
+  mdw.visibility.rightSidebar = true
+  mdw.floatWidget("KeyGamma", { anchor = "topleft", margin = 0 })
+  check(box:get_x() == mdw.config.leftDockWidth and box:get_y() == topChrome,
+    "margin 0 puts a corner flush, past the left sidebar")
+  -- Centring is the anchor with no edge to sit against, so the margin must
+  -- not reach it - every float MDW already places goes through this path.
+  local cx, cy = mdw.floatPos("center", 200, 100)
+  local mx, my = mdw.floatPos("center", 200, 100, 99)
+  check(cx == mx and cy == my, "a margin never moves a centred box")
+  check(cx == mdw.centeredFloatPos(200, 100), "centeredFloatPos is that same case")
+  -- ...and the centre still cascades past an existing float, which is the one
+  -- thing a named corner does NOT do (the caller asked for that corner).
+  mdw.floatWidget("KeyGamma", { anchor = "center" })
+  check(box:get_x() ~= mdw.floatPos("topright", box:get_width(), box:get_height()),
+    "a centred reveal is placed by the centre path, not left at the corner")
+end
 mdw.dockWidget("KeyGamma", "right")
 check(kgGroup.docked == "right", "dockWidget docks a floating group")
 mdw.dockWidget("KeyGamma", "left")

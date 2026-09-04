@@ -238,12 +238,20 @@ function mdw.showStack(stack, memberName)
   if mdw.updateWidgetsMenuState then mdw.updateWidgetsMenuState() end
 end
 
---- Float a group in the centre of the main window (cascading down-and-left past
--- any existing floats so titles stay visible). Used whenever a hidden widget is
--- revealed - from the Widgets menu or by bringing a sidebar back - so revealed
--- widgets always come back floating rather than snapping into a dock.
-function mdw.floatStackCentered(stack)
+--- Float a group at an anchor of the main console area (mdw.floatPos).
+--
+-- CASCADE IS THE CENTRE'S ALONE. A centred float is a reveal with no opinion
+-- about where it lands, so it steps down-and-left past any float already there
+-- to keep titles visible. A named corner is the opposite - the caller asked
+-- for that corner - so it is placed exactly, and two panels anchored to the
+-- same corner sit on top of each other, which is the caller's to sort out.
+--
+-- @param stack table, anchor string|nil (nil centres), margin number|nil
+function mdw.floatStackAt(stack, anchor, margin)
   if not stack or not stack.container then return end
+  local w, h = stack.container:get_width(), stack.container:get_height()
+  local x, y = mdw.floatPos(anchor, w, h, margin)
+  if not x then return end
   local fromDock = stack.docked
   stack.docked = nil
   stack.originalDock = nil
@@ -251,20 +259,31 @@ function mdw.floatStackCentered(stack)
   -- A floating group is never a fill (bottom-stretched) widget. Revert to its
   -- natural height now, but resize ONLY - re-laying the content here would show it
   -- at the old (still-docked) position for a frame before the move. layoutStack
-  -- below re-lays it at the new centred position instead.
+  -- below re-lays it at the new position instead.
   if stack.fill and stack._preFillHeight then
     stack.container:resize(nil, stack._preFillHeight)
+    -- The height just changed, so the position computed above was for the
+    -- docked box. Ask again, or a bottom anchor lands a fill-height box.
+    x, y = mdw.floatPos(anchor, w, stack.container:get_height(), margin)
   end
   stack.fill = false
   stack._preFillHeight = nil
-  local w, h = stack.container:get_width(), stack.container:get_height()
-  local x, y = mdw.centeredFloatPos(w, h)
-  x, y = mdw.cascadeFloatPos(x, y, w, h, stack)
+  if anchor == nil or anchor == "center" then
+    x, y = mdw.cascadeFloatPos(x, y, w, stack.container:get_height(), stack)
+  end
   stack.container:move(x, y)
   stack.container:show()
   mdw.layoutStack(stack)
   if fromDock then mdw.reorganizeDock(fromDock) end
   mdw.raiseWidgetElements(stack)
+end
+
+--- Float a group in the centre (cascading down-and-left past any existing
+-- floats so titles stay visible). Used whenever a hidden widget is revealed -
+-- from the Widgets menu or by bringing a sidebar back - so revealed widgets
+-- always come back floating rather than snapping into a dock.
+function mdw.floatStackCentered(stack)
+  mdw.floatStackAt(stack, "center")
 end
 
 --- Make a member render without its own chrome (the stack provides it).
@@ -1064,21 +1083,33 @@ end
 
 --- Float a widget in its own group, centred (cascaded past other floats).
 -- @return ok, code - "ok", "already", or "unknown_widget"
-function mdw.floatWidget(name)
+function mdw.floatWidget(name, opts)
   local w = mdw.widgets[name]
   if not w or w.isStack then return false, "unknown_widget" end
+  opts = opts or {}
+  local anchor = opts.anchor
+  if anchor ~= nil and not mdw.floatPos(anchor, 0, 0) then return false, "invalid" end
   local group = w.stackId and mdw.widgets[w.stackId] or nil
-  if group and not group.docked and not group.originalDock
-    and #(group.members or {}) <= 1 then
+  local lone = group and not group.docked and not group.originalDock
+    and #(group.members or {}) <= 1
+  -- Already a lone float and no position asked for: nothing to do but raise
+  -- it. WITH an anchor there is - the caller named a corner, and a widget
+  -- sitting somewhere else is exactly the case that has to move.
+  if lone and not anchor then
     mdw.raiseWidgetElements(group)
     return true, "already"
+  end
+  if lone then
+    mdw.floatStackAt(group, anchor, opts.margin)
+    mdw.refreshAfterMove()
+    return true, "ok"
   end
 
   local g = detachToHome(w)
   if not g then return false, "invalid" end
-  -- Centred even when torn out of another float: floatStackCentered cascades,
-  -- so the new group cannot land exactly on top of the one it left.
-  mdw.floatStackCentered(g)
+  -- Centred even when torn out of another float: the centre cascades, so the
+  -- new group cannot land exactly on top of the one it left.
+  mdw.floatStackAt(g, anchor, opts.margin)
   mdw.refreshAfterMove()
   return true, "ok"
 end

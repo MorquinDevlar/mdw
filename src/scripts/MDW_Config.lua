@@ -93,6 +93,10 @@ mdw.config = {
   -- grab width of the dock/prompt splitters, whose labels extend through it -
   -- the gap contains nothing clickable, so the widened target overlaps nothing.
   dockGap = 5,
+  -- Gap an ANCHORED float keeps from the edges of the main console area
+  -- (mdw.floatPos). Only corner anchors use it - a centred float has no edge
+  -- to sit against.
+  floatMargin = 10,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators

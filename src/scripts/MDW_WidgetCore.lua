@@ -1674,10 +1674,37 @@ end
 -- FLOAT POSITIONING
 ---------------------------------------------------------------------------
 
---- Top-left position that centres a box of the given size in the main console
--- area (excluding the visible sidebars, the header, the prompt bar, and any
--- chrome bars).
-function mdw.centeredFloatPos(boxW, boxH)
+-- The anchors mdw.floatPos understands, as the {horizontal, vertical} share of
+-- the leftover space each one takes: 0 hugs the near edge, 1 the far edge,
+-- 0.5 centres. A table rather than a branch per corner, so the margin and the
+-- clamp below are written once.
+local FLOAT_ANCHORS = {
+  center      = { 0.5, 0.5 },
+  topleft     = { 0, 0 },
+  topright    = { 1, 0 },
+  bottomleft  = { 0, 1 },
+  bottomright = { 1, 1 },
+}
+
+--- Top-left position for a box of the given size inside the MAIN CONSOLE AREA -
+-- what is left once the visible sidebars, the header, the prompt bar and any
+-- chrome bars are taken out. That rectangle is the whole point: a consumer
+-- placing a panel in "the top right corner" means the corner of the text the
+-- player is reading, not of the window, and it moves when a sidebar is toggled
+-- or a bar is added.
+--
+-- `margin` is the gap a CORNER anchor keeps from the two edges it sits against
+-- (cfg.floatMargin by default); a centred box has no edge to sit against and
+-- ignores it. The result is clamped into the area, so a box larger than the
+-- space left lands at the near edge rather than off-screen.
+--
+-- @param anchor string|nil One of FLOAT_ANCHORS; nil is "center"
+-- @param boxW number, boxH number The box being placed
+-- @param margin number|nil
+-- @return x, y, or nil for an unknown anchor
+function mdw.floatPos(anchor, boxW, boxH, margin)
+  local weights = FLOAT_ANCHORS[anchor or "center"]
+  if not weights then return nil end
   local cfg = mdw.config
   local winW, winH = getMainWindowSize()
   local leftOffset = mdw.visibility.leftSidebar and cfg.leftDockWidth or 0
@@ -1686,7 +1713,21 @@ function mdw.centeredFloatPos(boxW, boxH)
   local topChrome = cfg.headerHeight + mdw.barsHeight("top")
   local mainHeight = winH - topChrome
     - (mdw.visibility.promptBar and cfg.promptBarHeight or 0) - mdw.barsHeight("bottom")
-  return leftOffset + (mainWidth - boxW) / 2, topChrome + (mainHeight - boxH) / 2
+  -- A centred box keeps the geometry it has always had, byte for byte: the
+  -- margin is a corner concept, and applying it here would shift every
+  -- existing float by half of it.
+  local gap = (anchor == nil or anchor == "center") and 0
+    or (tonumber(margin) or cfg.floatMargin)
+  local freeW = math.max(0, mainWidth - boxW - gap * 2)
+  local freeH = math.max(0, mainHeight - boxH - gap * 2)
+  return leftOffset + gap + freeW * weights[1], topChrome + gap + freeH * weights[2]
+end
+
+--- Top-left position that centres a box in the main console area. The
+-- "center" case of mdw.floatPos, kept as its own name because every reveal
+-- path in this file asks for it by that name.
+function mdw.centeredFloatPos(boxW, boxH)
+  return mdw.floatPos("center", boxW, boxH)
 end
 
 --- Cascade a float position down-and-left while it would land on another floating

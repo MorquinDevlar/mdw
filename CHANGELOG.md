@@ -10,6 +10,16 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.floatWidget(name, opts)` takes `opts.anchor` - `topleft`, `topright`,
+  `bottomleft`, `bottomright` or `center` - and an optional `opts.margin`, so a
+  package can put a floating panel in a corner instead of the centre. The
+  corner is a corner of the main console area, so it follows a sidebar being
+  toggled or a chrome bar being added; `mdw.floatPos` exposes the positions on
+  their own. Anchored placement is exact, where a centred float still cascades
+  past any float already there. An anchor also repositions a group that is
+  already floating, which a bare `floatWidget` reports as `already`.
+
 ## 0.7.0 - 2026-09-04
 
 ### Added
