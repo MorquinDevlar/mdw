@@ -295,12 +295,17 @@ function mdw.setPromptGaugeValue(id, current, max, text)
 end
 
 --- Restyle one gauge's fill/track/label (e.g. health color bands). nil
--- keeps that part's current stylesheet.
+-- keeps that part's current stylesheet. A call that changes nothing is
+-- skipped, as the widget rows already do: consumers feed these from payloads
+-- arriving ten times a second, and Geyser's setStyleSheet re-applies all
+-- three labels and re-runs setValue every time.
 function mdw.setPromptGaugeStyle(id, front, back, text)
   local gauge = mdw.promptGauges[id]
   if not gauge then return end
   -- backCSS passed explicitly: Geyser defaults a nil back to the front CSS.
-  gauge:setStyleSheet(front or gauge.frontCSS, back or gauge.backCSS, text or gauge.textCSS)
+  front, back, text = front or gauge.frontCSS, back or gauge.backCSS, text or gauge.textCSS
+  if front == gauge.frontCSS and back == gauge.backCSS and text == gauge.textCSS then return end
+  gauge:setStyleSheet(front, back, text)
 end
 
 ---------------------------------------------------------------------------
@@ -1835,6 +1840,10 @@ function mdw.cleanupGame(owner)
       deleteNamedEventHandler(mdw.packageName, handlerName)
       mdw.handlers[handlerName] = nil
     end
+  end
+  -- Gear-menu rows the owner declared (stamped in mdw.addMenuItem)
+  for i = #(mdw.gameMenu or {}), 1, -1 do
+    if mdw.gameMenu[i].owner == owner then table.remove(mdw.gameMenu, i) end
   end
   -- Shared prompt-bar surfaces, only if this owner declared them
   if mdw.promptGaugeOwner == owner then mdw.setPromptGauges(nil) end

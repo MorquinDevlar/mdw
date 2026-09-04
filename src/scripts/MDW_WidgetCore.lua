@@ -298,9 +298,7 @@ end
 --- Delete a widget's row elements and forget the declaration.
 function mdw.destroyWidgetRows(widget)
   for _, rec in pairs(widget._rows or {}) do
-    -- Gauges and sliders are both a Geyser.Gauge: three real labels behind
-    -- one container, and the container is not a Qt object to delete.
-    if rec.type ~= "text" then
+    if rec.isGauge then
       mdw.deleteElement(rec.el.text)
       mdw.deleteElement(rec.el.front)
       mdw.deleteElement(rec.el.back)
@@ -314,6 +312,14 @@ function mdw.destroyWidgetRows(widget)
   widget._rowSig = nil
 end
 
+--- The row types this MDW build renders. A consumer checks existence here the
+-- way it checks every other capability (`mdw.rowTypes and mdw.rowTypes.slider`)
+-- and adapts: on a build without sliders a volume row is declared as a plain
+-- gauge instead of arriving as an unknown type. It is also what normalizes an
+-- incoming row's type, so the table cannot advertise one the renderer quietly
+-- turns into a gauge.
+mdw.rowTypes = { text = true, gauge = true, slider = true }
+
 -- A slider is a gauge the player sets. Everything mouse-side happens on the
 -- gauge's TOP label (Geyser builds back, front, text in that order, so `text`
 -- is the one Qt hands events to), and the fill simply follows the pointer -
@@ -321,40 +327,36 @@ end
 -- move and release to the label that took the press, so a drag that wanders
 -- off the row still commits. The handlers read the RECORD, the way a text
 -- row's onClick does, so an in-place update swaps them without rebinding.
-
-local function sliderMax(rec)
-  local max = tonumber(rec.max) or 0
-  -- A slider without a usable max is a 0-100 percentage, not a 0-1 switch
-  -- (the gauge row's clamp), which is what a volume or brightness row wants.
-  if max <= 0 then max = 100 end
-  return max
-end
+-- `rec.max` and `rec.step` are normalized once per repaint (applyRowContent),
+-- so the per-event path reads ready numbers instead of re-deriving them.
 
 local function sliderClamp(value, max)
-  value = math.floor((tonumber(value) or 0) + 0.5)
-  if value < 0 then return 0 end
-  if value > max then return max end
-  return value
+  return mdw.clamp(math.floor((tonumber(value) or 0) + 0.5), 0, max)
 end
 
 --- Repaint the bar at `value` without telling the game (a drag's preview).
 local function sliderPaint(rec, value)
   rec.value = value
-  rec.el:setValue(value, sliderMax(rec), rec.text)
+  rec.el:setValue(value, rec.max, rec.text)
 end
 
 local function sliderValueAt(rec, event)
-  local width = rec.el.text:get_width() or 0
+  -- The press captures the width: it cannot change while the button is held,
+  -- and get_width walks the Geyser constraint chain up to the main window.
+  local width = rec.dragWidth or rec.el.text:get_width() or 0
   if width <= 0 then return nil end
-  local max = sliderMax(rec)
-  return sliderClamp(((event and event.x) or 0) / width * max, max)
+  return sliderClamp(((event and event.x) or 0) / width * rec.max, rec.max)
 end
 
 local function bindSliderCallbacks(rec, labelName)
   setLabelClickCallback(labelName, function(event)
     if event and event.button and event.button ~= "LeftButton" then return end
+    rec.dragWidth = rec.el.text:get_width()
     local value = sliderValueAt(rec, event)
-    if not value then return end
+    if not value then
+      rec.dragWidth = nil
+      return
+    end
     -- The press sets the value AND arms the drag: press-then-drag is one
     -- gesture, so the commit waits for the release whether or not it moved.
     rec.dragging = true
@@ -371,7 +373,7 @@ local function bindSliderCallbacks(rec, labelName)
 
   setLabelReleaseCallback(labelName, function()
     if not rec.dragging then return end
-    rec.dragging = nil
+    rec.dragging, rec.dragWidth = nil, nil
     if rec.onChange then rec.onChange(rec.value) end
   end)
 
@@ -381,9 +383,8 @@ local function bindSliderCallbacks(rec, labelName)
     setLabelWheelCallback(labelName, function(event)
       local delta = tonumber(event and event.angleDeltaY) or 0
       if delta == 0 then return end
-      local max = sliderMax(rec)
-      local step = tonumber(rec.step) or mdw.config.rowSliderStep
-      local value = sliderClamp((rec.value or 0) + (delta > 0 and step or -step), max)
+      local value = sliderClamp((rec.value or 0)
+        + (delta > 0 and rec.step or -rec.step), rec.max)
       -- The wheel keeps turning at either end; committing a value that did
       -- not move would spam the game's setter with what it already has.
       if value == rec.value then return end
@@ -396,8 +397,11 @@ end
 local function createRowElement(widget, row)
   local cfg = mdw.config
   local name = "MDW_" .. widget.name .. "_Row_" .. tostring(row.id)
-  local rowType = (row.type == "text" or row.type == "slider") and row.type or "gauge"
-  local rec = { type = rowType, id = row.id }
+  local rowType = mdw.rowTypes[row.type] and row.type or "gauge"
+  -- Gauge and slider rows are both a Geyser.Gauge: three real labels behind a
+  -- container that is not itself a Qt object. Recorded once here so delete,
+  -- raise, restyle and layout ask this instead of each re-listing the types.
+  local rec = { type = rowType, id = row.id, isGauge = rowType ~= "text" }
   local function textLabel(elName)
     local label = mdw.trackElement(Geyser.Label:new({
       name = elName, x = 0, y = 0, width = 10, height = rowHeight(cfg, row),
@@ -464,7 +468,7 @@ local function applyRowContent(rec, row)
     rec.rightText = row.rightText
     rec.right:decho(row.rightText or "")
   end
-  if rec.type ~= "text" then
+  if rec.isGauge then
     -- Stylesheets restyle only on change (string compare), so band shifts
     -- cost one restyle at the crossing rather than one per payload.
     if row.front ~= rec.front or row.back ~= rec.back then
@@ -472,14 +476,24 @@ local function applyRowContent(rec, row)
       rec.el:setStyleSheet(row.front, row.back, row.textStyle)
     end
     if rec.type == "slider" then
-      rec.max, rec.step, rec.text = row.max, row.step, row.text
+      -- A slider without a usable max is a 0-100 percentage, not the gauge
+      -- row's 0-1 switch - what a volume or brightness row wants. Normalized
+      -- here, once per repaint, so the mouse handlers read a ready number.
+      local max = tonumber(row.max) or 0
+      rec.max = (max > 0) and max or 100
+      rec.step = tonumber(row.step) or mdw.config.rowSliderStep
       rec.onChange, rec.onPreview = row.onChange, row.onPreview
       -- A push landing mid-drag must not fight the hand: the pointer owns the
       -- value until the release, and the next repaint after it applies
       -- whatever the game declares. The LABEL is still the game's, so a
       -- renderer driven from onPreview can relabel the bar as it moves.
-      sliderPaint(rec, rec.dragging and rec.value
-        or sliderClamp(row.value, sliderMax(rec)))
+      local value = rec.dragging and rec.value or sliderClamp(row.value, rec.max)
+      -- A setting moves on a gesture, so nearly every repaint of a slider is
+      -- a no-op - and Geyser re-echoes the label on every setValue.
+      if value ~= rec.value or row.text ~= rec.text then
+        rec.text = row.text
+        sliderPaint(rec, value)
+      end
     else
       local cur, max = tonumber(row.value) or 0, tonumber(row.max) or 0
       if max <= 0 then max = 1 end
@@ -505,12 +519,6 @@ local function applyRowContent(rec, row)
     end
   end
 end
-
---- The row types this MDW build renders. A consumer checks existence here the
--- way it checks every other capability (`mdw.rowTypes and mdw.rowTypes.slider`)
--- and adapts: on a build without sliders a volume row is declared as a plain
--- gauge instead of arriving as an unknown type.
-mdw.rowTypes = { text = true, gauge = true, slider = true }
 
 --- Declare (or clear, with nil/{}) a plain widget's row block. Each row:
 --   { id, type = "text", text = <decho string>, rightText?, onClick?,
@@ -590,7 +598,7 @@ function mdw.layoutWidgetRows(widget)
         -- under the words - so its right label takes a reserved slice (never
         -- more than half the row, so a thin dock still shows a bar).
         local elWidth, rightX, rightWidth = width, cfg.contentPaddingLeft, width
-        if rec.right and rec.type ~= "text" then
+        if rec.right and rec.isGauge then
           rightWidth = math.min(row.rightWidth or cfg.rowRightWidth,
             math.floor(width / 2))
           elWidth = width - rightWidth

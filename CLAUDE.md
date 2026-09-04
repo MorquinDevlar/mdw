@@ -95,6 +95,16 @@ puts a widget BACK where it was (old group, else the end of its old dock),
 while the Widgets menu keeps floating it in the centre - a keyboard user
 cannot drag a float back into a dock.
 
+The gear dropdown takes rows from consumers on the same terms:
+`mdw.addMenuItem`/`mdw.removeMenuItem` and `cleanupGame`'s owner reap are the
+whole of what writes `mdw.gameMenu`; `rebuildAdminMenu` and `mdw.menuItems`
+only read it. Game rows LEAD and MDW's own two follow under a
+divider - Uninstall must not move down under a pointer that knows where it is.
+A row's `label` and `checked` may be getters, which is what makes live state
+free: the gear rebuilds on open, so they are read then. Rows carry
+`mdw._currentOwner` and are reaped by `cleanupGame`, like everything else made
+inside an onReady callback.
+
 ## Mudlet/Geyser quirks this codebase encodes
 
 - **`decho` on a label renders at the label's OWN font size** (`setFontSize`),

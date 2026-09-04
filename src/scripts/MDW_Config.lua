@@ -447,6 +447,16 @@ mdw.handlers = {}
 mdw.bars = {}
 mdw.barOrder = {}
 
+-- Rows game packages contribute to the admin (gear) dropdown, in the order
+-- they were added. The gear is where a package's own UI-level actions belong -
+-- the Widgets menu lists widgets, and a game's "open my diagnostics panel" is
+-- not one of those. NOT part of the consumer pre-seed block above on purpose:
+-- rows go in through mdw.addMenuItem so each is stamped with its owner and
+-- reaped with the package (mdw.cleanupGame), and a hand-seeded row would
+-- render while never being reaped. Survives teardown and script re-runs like
+-- onReady, since a package re-declares its rows from onReady on every build.
+mdw.gameMenu = mdw.gameMenu or {}
+
 -- Live prompt-bar gauges: id -> Geyser.Gauge. Rebuilt from
 -- mdw.promptGaugeDefs, which is deliberately NOT reset here - like
 -- mdw.onReady, the declaration survives teardown and script re-runs so the

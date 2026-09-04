@@ -724,9 +724,7 @@ function mdw.raiseWidgetElements(widget)
     -- the whole content area, so anything left out of this pass disappears
     -- behind it the first time a tab select or a layout pass re-stacks.
     for _, rec in pairs(widget._rows or {}) do
-      -- Gauge and slider rows are a Geyser.Gauge: the three labels are the
-      -- real Qt objects, the container is not one.
-      if rec.type ~= "text" then
+      if rec.isGauge then
         safeRaise(rec.el.back)
         safeRaise(rec.el.front)
         safeRaise(rec.el.text)

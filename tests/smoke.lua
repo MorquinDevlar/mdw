@@ -149,6 +149,9 @@ function Geyser.Gauge:new(props, container)
     return true
   end
   function g.setStyleSheet(gauge, css, cssback, cssText)
+    -- Counted: setPromptGaugeStyle skips a call that changes nothing, and the
+    -- only way to see a skip is that Geyser was never reached.
+    gauge._styleCalls = (gauge._styleCalls or 0) + 1
     gauge.frontCSS, gauge.backCSS = css, cssback or css
     gauge.front:setStyleSheet(gauge.frontCSS)
     gauge.back:setStyleSheet(gauge.backCSS)
@@ -521,6 +524,59 @@ check(mdw.headerButtonX.themeButton > oldThemeX, "later header buttons shifted r
 check(mdw.widgetsMenuBg:get_x() == mdw.headerButtonX.widgetsButton, "widgets dropdown re-anchored")
 mdw.closeAllMenus()
 
+-- 2c. Gear-menu rows contributed by game packages (mdw.addMenuItem). The
+-- gear rebuilds on every open, so a getter label/checked shows live state.
+local gearRan = 0
+local gearOn = false
+check(select(2, mdw.addMenuItem({ label = "no id" })) == "invalid",
+  "a row without an id is refused")
+check(select(2, mdw.addMenuItem({ id = "conn", label = "Connection Stats",
+  checked = function() return gearOn end,
+  onClick = function() gearRan = gearRan + 1 end })) == "ok", "row added")
+check(select(2, mdw.addMenuItem({ id = "conn", label = "Connection Stats",
+  checked = function() return gearOn end,
+  onClick = function() gearRan = gearRan + 1 end })) == "replaced",
+  "re-adding a known id replaces it rather than appending")
+check(#mdw.gameMenu == 1, "the replace left one row, not two")
+-- menuItems is the DATA view: getters resolved, checkbox left to the menu.
+local listed = mdw.menuItems()
+check(#listed == 1 and listed[1].id == "conn" and listed[1].label == "Connection Stats"
+  and listed[1].checked == false,
+  "menuItems lists resolved rows without the menu's checkbox glyph")
+listed[1] = nil
+check(#mdw.gameMenu == 1, "the listing is a copy, not the live table")
+mdw.toggleMenu("admin")
+local gearRow = H.labels["MDW_AdminMenu_Game1"]
+local function gearText(name)
+  local l = H.labels[name]
+  return l and l._echoed[#l._echoed] or ""
+end
+check(gearRow ~= nil and gearText("MDW_AdminMenu_Game1"):find("[ ] ", 1, true) ~= nil
+  and gearText("MDW_AdminMenu_Game1"):find("Connection Stats", 1, true) ~= nil,
+  "a checked row draws an unticked box")
+check(gearText("MDW_AdminMenu_Game1"):find(mdw.config.headerTextColor, 1, true) ~= nil,
+  "the box uses the shared renderer's colour, like every other dropdown")
+check(gearRow._y < H.labels["MDW_AdminMenu_Rebuild"]._y
+  and H.labels["MDW_AdminMenu_Rebuild"]._y < H.labels["MDW_AdminMenu_Uninstall"]._y,
+  "game rows lead; Uninstall stays at the bottom")
+check(H.labels["MDW_AdminMenu_Sep"] ~= nil and H.labels["MDW_AdminMenu_Sep"]._h == 1,
+  "a divider separates the game rows from MDW's own")
+check(H.labels["MDW_AdminMenuBg"]._h >= 3 * mdw.config.menuItemHeight,
+  "the dropdown grew by the row it gained")
+fire("MDW_AdminMenu_Game1", "click")
+check(gearRan == 1 and not mdw.menus.admin, "clicking a row runs it and closes the menu")
+gearOn = true
+mdw.toggleMenu("admin")
+check(gearText("MDW_AdminMenu_Game1"):find("[x] ", 1, true) ~= nil,
+  "the checkbox re-reads its getter on the next open")
+mdw.closeAllMenus()
+check(select(2, mdw.removeMenuItem("conn")) == "ok"
+  and select(2, mdw.removeMenuItem("conn")) == "unknown_item", "a row can be withdrawn once")
+mdw.toggleMenu("admin")
+check(H.labels["MDW_AdminMenu_Game1"] == nil and H.labels["MDW_AdminMenu_Sep"] == nil,
+  "with no game rows the divider goes too")
+mdw.closeAllMenus()
+
 -- 3. Themes incl. hover preview
 mdw.setTheme("ruby")
 check(mdw.config.theme == "ruby", "setTheme commits")
@@ -726,6 +782,21 @@ check(hpGauge._max == 1, "a non-positive max is clamped before Geyser would refu
 mdw.setPromptGaugeStyle("hp", "background-color: amber;")
 check(hpGauge.front._css == "background-color: amber;" and hpGauge.back._css == "background-color: darkred;",
   "restyling the fill keeps the track stylesheet")
+-- Consumers drive these from payloads arriving ten times a second, so a call
+-- that changes nothing must not reach Geyser (setStyleSheet re-applies all
+-- three labels and re-runs setValue) - the same string compare the widget
+-- rows already do.
+do
+  local styleCalls = hpGauge._styleCalls
+  mdw.setPromptGaugeStyle("hp", "background-color: amber;")
+  check(hpGauge._styleCalls == styleCalls,
+    "a prompt-gauge restyle that changes nothing is skipped")
+  mdw.setPromptGaugeStyle("hp", nil, "background-color: black;")
+  check(hpGauge._styleCalls == styleCalls + 1
+    and hpGauge.back._css == "background-color: black;"
+    and hpGauge.front._css == "background-color: amber;",
+    "a changed track still restyles, keeping the fill")
+end
 local _, promptCharH = calcFontSize(mdw.getPromptEffectiveFontSize())
 check(mdw.config.promptBarHeight >= promptCharH + mdw.config.promptBarTopPadding
   + mdw.config.separatorHeight + mdw.promptGaugeRowHeight(),
@@ -1089,6 +1160,7 @@ mdw.onReady["ReapGame"] = function()
   mdw.createBar({ name = "ReapBar", edge = "top", height = 18 })
   mdw.trackElement(Geyser.Label:new({ name = "ReapBadge", x = 1, y = 1, width = 5, height = 5 }))
   mdw.registerHandler("someEvent", "reapHandler", function() end)
+  mdw.addMenuItem({ id = "reapRow", label = "Reap Row", onClick = function() end })
 end
 mdw.gamePackages["ReapGameUI"] = "ReapGame" -- value = owner key (differs from package name)
 mdw.runReadyCallbacks("ReapGame")
@@ -1099,11 +1171,13 @@ check(mdw.widgets[mdw.widgets["ReapWidget"].stackId].owner == "ReapGame",
 check(mdw.bars["ReapBar"].owner == "ReapGame", "bar stamped")
 check(H.labels["ReapBadge"]._mdwOwner == "ReapGame", "adopted raw element stamped")
 check(mdw.handlers["MDW_reapHandler"] == "ReapGame", "handler stamped")
+check(mdw.gameMenu[1] and mdw.gameMenu[1].owner == "ReapGame", "gear-menu row stamped")
 raiseEvent("sysUninstallPackage", "ReapGameUI")
 check(mdw.widgets["ReapWidget"] == nil, "owned widget reaped on game uninstall")
 check(mdw.bars["ReapBar"] == nil and H.labels["MDW_Bar_ReapBar_Bg"] == nil, "owned bar reaped")
 check(H.labels["ReapBadge"] == nil, "owned adopted element reaped")
 check(mdw.handlers["MDW_reapHandler"] == nil, "owned handler reaped")
+check(#mdw.gameMenu == 0, "owned gear-menu row reaped")
 check(mdw.onReady["ReapGame"] == nil, "owner's onReady registration removed")
 check(mdw.gamePackages["ReapGameUI"] == nil, "co-removal entry consumed by the reap")
 check(mdw.widgets["Items"] ~= nil, "other consumers' widgets untouched by the reap")

@@ -11,6 +11,11 @@ verbatim as the GitHub release notes.
 ## Unreleased
 
 ### Added
+- `mdw.addMenuItem` / `mdw.removeMenuItem` let a game package put its own rows
+  in the gear dropdown, above MDW's Rebuild UI and Uninstall and separated by a
+  divider. A row's label and checkbox may be getters, re-read every time the
+  menu opens, so it can show live state; rows declared from `onReady` are reaped
+  with the package like its widgets. `mdw.menuItems()` lists what is declared.
 - `mdw.setWidgetRows` takes a `slider` row type: a gauge the player sets by
   clicking or dragging the bar, or by rolling the wheel over it, so a package
   can put volume and other 0..max settings in a widget instead of behind a
@@ -21,6 +26,11 @@ verbatim as the GitHub release notes.
 - `mdw.rowTypes` names the row types the running MDW renders, so a package can
   declare a plain gauge where a slider is not available instead of sending a
   row type the framework does not know.
+
+### Changed
+- `mdw.setPromptGaugeStyle` skips a call that would re-apply the stylesheets a
+  gauge already wears, so a package can drive it from every payload the way it
+  already can with `mdw.setWidgetRows`.
 
 ## 0.6.9 - 2026-08-25
 

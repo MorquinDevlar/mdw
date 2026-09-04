@@ -202,6 +202,10 @@ mdw.setPromptGaugeValue("hp", vitals.hp, vitals.maxhp, "HP " .. vitals.hp)
 mdw.setPromptGaugeStyle("hp", lowHpFillCss)  -- e.g. color bands; nil keeps a part
 ```
 
+A `setPromptGaugeStyle` call whose stylesheets all match what the gauge is
+already wearing is skipped, so feeding it from every payload costs nothing
+between band changes (the same rule as the widget rows).
+
 `mdw.setPromptGauges(nil)` removes the row (call it from your package's
 uninstall handler). The prompt bar grows if needed so the row plus one line
 of prompt text always fit; the player's dragged bar height is respected
@@ -306,6 +310,35 @@ restored before your `onReady` runs. Namespace by package name
 (`mdw.gameSettings["MyGame"] = { ... }`), mutate at will, and call
 `mdw.saveLayout()` to persist - the natural home for menu toggles like the
 ones above.
+
+### Rows in the Gear Menu
+
+The gear dropdown holds MDW's own two rows (Rebuild UI, Uninstall). Your
+package can put its own above them - a diagnostics panel, a mode switch,
+anything that belongs to the UI rather than to one widget:
+
+```lua
+mdw.addMenuItem({
+  id = "connstats",
+  label = "Connection Stats",
+  checked = function() return mdw.isWidgetShown(mdw.widgets["Connection"]) end,
+  onClick = function() mdw.toggleWidget("Connection") end,
+})
+```
+
+Declare rows from your `onReady` callback, on every build: a known `id`
+replaces its row in place, so re-declaring never duplicates or reorders. Rows
+declared there are stamped with your package and reaped with it, the same as
+your widgets; `mdw.removeMenuItem(id)` withdraws one by hand.
+
+`label` and `checked` may each be a **function** instead of a value. The gear
+menu is rebuilt every time it opens, so a getter is read then - which is how
+the row above shows a live tick without your package repainting anything. A
+`checked` of `nil` draws no checkbox; `false` draws an empty one.
+
+Your rows come first and MDW's two stay at the bottom, under a divider:
+Uninstall must not move down under the pointer of someone who has opened that
+menu a hundred times.
 
 ### Context Menus for Your Widget Content
 
@@ -649,6 +682,7 @@ echoing anything themselves, so your package owns every word the player sees.
 | `mdw.scrollWidget(name, action, lines)` | `"up"`/`"down"` by `lines` (default 10), `"top"`, `"bottom"`. Needs Mudlet 4.17+, else `"unsupported"` |
 | `mdw.widgetText(name)` | The widget's current text as plain lines, for reading it aloud or echoing it elsewhere |
 | `mdw.describeLayout()` | The whole layout as plain data: sidebars, prompt bar, theme, fonts, both docks' rows and occupants, floating groups, and hidden widgets with a reason (`closed`, `group_hidden`, `sidebar_hidden`) |
+| `mdw.addMenuItem(spec)` / `mdw.removeMenuItem(id)` | Rows your package contributes to the gear dropdown (`"ok"`, `"replaced"`, `"unknown_item"`, `"invalid"`). `mdw.menuItems()` lists them as `{ id, label, checked, owner }`, getters resolved |
 | `mdw.resetLayout(opts)` | Delete the saved layout, restore `mdw.layoutDefaults`, and rebuild. `opts.keepGameSettings` (default true) preserves `mdw.gameSettings` |
 
 ```lua

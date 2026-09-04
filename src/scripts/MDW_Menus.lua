@@ -857,20 +857,119 @@ function mdw.destroyAdminMenuElements()
   end
 end
 
---- Build (or rebuild) the admin dropdown, left-aligned under the gear.
+--- Add (or replace) one game-package row in the gear dropdown.
+--
+-- The set-semantics half of the feature, per this file's contract: rendering
+-- only READS mdw.gameMenu - these two functions and cleanupGame's owner reap
+-- are the whole of what writes it. `label` and `checked` may
+-- each be a FUNCTION instead of a value - the gear menu rebuilds on every
+-- open, so a row evaluated then shows live state (a widget's own visibility,
+-- a setting's current value) without the package repainting anything.
+-- A `checked` of nil draws no checkbox at all; false draws an empty one.
+--
+-- Re-adding a known id REPLACES that row in place rather than appending, so a
+-- package that re-declares its rows from onReady on every build (which is the
+-- expected shape) never shuffles or duplicates them.
+--
+-- @param spec table { id, label, onClick, checked? }
+-- @return ok, code - "ok", "replaced", or "invalid"
+function mdw.addMenuItem(spec)
+  if type(spec) ~= "table" then return false, "invalid" end
+  local id = tostring(spec.id or "")
+  if id == "" or spec.label == nil then return false, "invalid" end
+  local row = {
+    id = id,
+    label = spec.label,
+    checked = spec.checked,
+    onClick = spec.onClick,
+    -- Stamped like every other creation inside a ready callback, so
+    -- cleanupGame reaps the row with the package that declared it. Nil
+    -- outside onReady, by the same design as the other lazy creations.
+    owner = mdw._currentOwner,
+  }
+  for i, existing in ipairs(mdw.gameMenu) do
+    if existing.id == id then
+      mdw.gameMenu[i] = row
+      return true, "replaced"
+    end
+  end
+  mdw.gameMenu[#mdw.gameMenu + 1] = row
+  return true, "ok"
+end
+
+--- Withdraw one gear-menu row.
+-- @return ok, code - "ok" or "unknown_item"
+function mdw.removeMenuItem(id)
+  id = tostring(id or "")
+  for i, row in ipairs(mdw.gameMenu) do
+    if row.id == id then
+      table.remove(mdw.gameMenu, i)
+      return true, "ok"
+    end
+  end
+  return false, "unknown_item"
+end
+
+--- Resolve a row field that may be a getter. The gear rebuilds on every open,
+-- so a function is read then - which is how a row shows live state without the
+-- package repainting anything.
+local function resolveField(value, fallback)
+  if type(value) ~= "function" then return value end
+  local ok, resolved = pcall(value)
+  return ok and resolved or fallback
+end
+
+--- One row's label and checkbox state, both resolved. `checked` stays nil when
+-- the row declared none, which is what draws no box at all.
+local function menuItemState(row)
+  local label = tostring(resolveField(row.label, "") or "")
+  if row.checked == nil then return label, nil end
+  return label, resolveField(row.checked, false) and true or false
+end
+
+--- The declared rows in display order, as { id, label, checked, owner } - a
+-- copy, so a caller listing them cannot reorder the live table. Getters are
+-- resolved; the checkbox is the menu's rendering, so it stays out of the data.
+function mdw.menuItems()
+  local out = {}
+  for i, row in ipairs(mdw.gameMenu) do
+    local label, checked = menuItemState(row)
+    out[i] = { id = row.id, label = label, checked = checked, owner = row.owner }
+  end
+  return out
+end
+
+--- Build (or rebuild) the admin dropdown, left-aligned under the gear:
+-- the game's own rows first, then a divider, then MDW's two.
+--
+-- Game rows lead because the destructive one has to stay at the bottom - a
+-- menu that moves Uninstall down as a package adds rows is a menu that moves
+-- it under the pointer of someone who has opened it a hundred times.
 function mdw.rebuildAdminMenu()
   mdw.destroyAdminMenuElements()
 
   local cfg = mdw.config
   -- Wide enough for a branded "Uninstall <uiName>" (same pattern as the
-  -- Widgets menu), never narrower than the default menu width.
+  -- Widgets menu) and for the longest game row, never narrower than the
+  -- default menu width.
   local uninstallLabel = "Uninstall " .. cfg.uiName
+  local gameRows = mdw.gameMenu or {}
+  local labels, checks = {}, {}
+  local maxLen = #uninstallLabel
+  for i, row in ipairs(gameRows) do
+    labels[i], checks[i] = menuItemState(row)
+    -- A checkbox is four glyphs the label itself does not carry.
+    maxLen = math.max(maxLen, #labels[i] + (checks[i] ~= nil and 4 or 0))
+  end
   local menuWidth = math.max(cfg.menuWidth,
-    cfg.menuPaddingLeft * 2 + #uninstallLabel * mdw.charWidthEstimate(cfg.headerMenuFontSize))
+    cfg.menuPaddingLeft * 2 + maxLen * mdw.charWidthEstimate(cfg.headerMenuFontSize))
   -- Left-align under the gear (which sits at the far left of the header)
   local menuX = cfg.menuPaddingLeft
   local menuY = cfg.headerHeight - cfg.menuOverlap
-  local menuHeight = cfg.menuItemHeight * 2 + cfg.menuPadding * 2
+  -- The divider only exists when there is something above it to divide off.
+  local sepAdvance = cfg.menuPadding
+  local menuHeight = cfg.menuItemHeight * (2 + #gameRows) + cfg.menuPadding * 2
+    + (#gameRows > 0 and sepAdvance or 0)
 
   mdw.adminMenuLabels = {}
 
@@ -880,36 +979,63 @@ function mdw.rebuildAdminMenu()
   })
   mdw.adminMenuBg:setStyleSheet(mdw.styles.menuBackground)
 
+  local yPos = menuY + cfg.menuPadding
+
+  --- One clickable row of the dropdown, at the running y. A nil `checked`
+  -- draws no box; otherwise the shared renderer draws it in the same two
+  -- colours every other header dropdown uses.
+  local function addRow(name, text, checked, onClick)
+    local label = Geyser.Label:new({
+      name = name,
+      x = menuX, y = yPos, width = menuWidth, height = cfg.menuItemHeight,
+    })
+    label:setStyleSheet(mdw.styles.menuItem)
+    label:setFontSize(cfg.headerMenuFontSize)
+    if checked == nil then
+      label:decho("<" .. cfg.menuTextColor .. ">" .. text)
+    else
+      mdw.updateMenuItemText(label, text, checked)
+    end
+    label:setCursor(mudlet.cursor.PointingHand)
+    mdw.adminMenuLabels[#mdw.adminMenuLabels + 1] = label
+    setLabelClickCallback(name, onClick)
+    yPos = yPos + cfg.menuItemHeight
+    return label
+  end
+
+  -- Game rows. Stable element names (index, not id) for the reason at the top
+  -- of this file: deleteLabel frees the Qt widget but Geyser keeps a registry
+  -- entry per name, so a name minted per rebuild grows that registry all
+  -- session. The menu is destroyed and rebuilt on every open, so the click
+  -- closure captured here is always the current row's.
+  for i, row in ipairs(gameRows) do
+    local onClick = row.onClick
+    addRow("MDW_AdminMenu_Game" .. i, labels[i], checks[i], function()
+      mdw.closeAllMenus()
+      if onClick then onClick() end
+    end)
+  end
+
+  if #gameRows > 0 then
+    local sep = Geyser.Label:new({
+      name = "MDW_AdminMenu_Sep",
+      x = menuX + cfg.menuPaddingLeft, y = yPos + math.floor(sepAdvance / 2),
+      width = menuWidth - cfg.menuPaddingLeft * 2, height = 1,
+    })
+    sep:setStyleSheet(mdw.styles.separatorLine)
+    mdw.adminMenuLabels[#mdw.adminMenuLabels + 1] = sep
+    yPos = yPos + sepAdvance
+  end
+
   -- Recovery hatch for a half-torn session (e.g. scripts re-ran over a live
   -- UI): tears down whatever exists and builds fresh, consumers included.
-  local rebuild = Geyser.Label:new({
-    name = "MDW_AdminMenu_Rebuild",
-    x = menuX, y = menuY + cfg.menuPadding,
-    width = menuWidth, height = cfg.menuItemHeight,
-  })
-  rebuild:setStyleSheet(mdw.styles.menuItem)
-  rebuild:setFontSize(cfg.headerMenuFontSize)
-  rebuild:decho("<" .. cfg.menuTextColor .. ">Rebuild UI")
-  rebuild:setCursor(mudlet.cursor.PointingHand)
-  mdw.adminMenuLabels[#mdw.adminMenuLabels + 1] = rebuild
-  setLabelClickCallback(rebuild.name, function()
+  addRow("MDW_AdminMenu_Rebuild", "Rebuild UI", nil, function()
     mdw.closeAllMenus()
     mdw.rebuild()
   end)
 
-  local item = Geyser.Label:new({
-    name = "MDW_AdminMenu_Uninstall",
-    x = menuX, y = menuY + cfg.menuPadding + cfg.menuItemHeight,
-    width = menuWidth, height = cfg.menuItemHeight,
-  })
-  item:setStyleSheet(mdw.styles.menuItem)
-  item:setFontSize(cfg.headerMenuFontSize)
-  item:decho("<" .. cfg.menuTextColor .. ">" .. uninstallLabel)
-  item:setCursor(mudlet.cursor.PointingHand)
-  mdw.adminMenuItem = item
-  mdw.adminMenuLabels[#mdw.adminMenuLabels + 1] = item
-
-  setLabelClickCallback(item.name, function() mdw.onUninstallItemClick() end)
+  mdw.adminMenuItem = addRow("MDW_AdminMenu_Uninstall", uninstallLabel, nil,
+    function() mdw.onUninstallItemClick() end)
 end
 
 --- Two-step confirm: first click arms, second click (within the window) runs.
