@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-04
+
 ### Added
 - `mdw.addMenuItem` / `mdw.removeMenuItem` let a game package put its own rows
   in the gear dropdown, above MDW's Rebuild UI and Uninstall and separated by a
