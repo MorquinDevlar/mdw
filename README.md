@@ -173,6 +173,19 @@ Renaming the bundled copy also leaves the player's own font untouched. Check
 the licence first: renaming is required for a font whose licence declares a
 Reserved Font Name, and permitted for one that does not.
 
+**A package that bundles the font MDW renders in must hand the main console
+back on its own uninstall**, by calling `mdw.restoreMainFont()` from its
+`sysUninstallPackage` handler. Mudlet unloads a package's fonts as part of
+uninstalling it and then checks whether the profile's display font still
+exists - moving the profile to the bundled default and warning the player if
+it does not. That check runs after your handler, so the family has to be off
+the console by the time it returns; re-resolving instead sees nothing wrong,
+because Mudlet raises the event BEFORE it unloads the fonts.
+`mdw.restoreMainFont()` puts back the family MDW captured before it applied
+yours (or Mudlet's bundled monospace, if that one has gone too) and is a no-op
+when MDW never touched the console. An update pays one repaint: the reinstall
+applies your family again.
+
 ### Gauges in the Prompt Bar
 
 A game package can declare a row of real Geyser gauges (HP, mana, balance,
@@ -382,6 +395,13 @@ A right-hand anchor also keeps `cfg.mainScrollBarWidth` (15) clear on top of
 the margin: Mudlet draws the main console's scrollbar inside the console's own
 right edge, so an anchor measured to that edge alone puts the panel underneath
 it. Left anchors and centring are untouched.
+
+A float the player DRAGS snaps flush when an edge comes within
+`cfg.floatSnapDistance` (8) of the main console area's edges or of another
+float's - left-to-left and right-to-right so panels line up, right-to-left and
+bottom-to-top so they sit side by side or stacked. The right-hand edge stops
+short of `cfg.mainScrollBarWidth`, so a snapped float never covers the
+console's scrollbar. Each axis is decided on its own; 0 turns it off.
 
 Anchored placement is exact - no cascade. A centred float steps down-and-left
 past any float already there so titles stay visible, because a centred reveal

@@ -593,6 +593,15 @@ function mdw.rebuildStacksFromLayout()
             stack.container:resize(saved.width or stack.container:get_width(), saved.height)
           end
         end
+        -- A FLOATING group's position is its whole placement: nothing else in
+        -- this record says where it goes, the way `dock`/`row` do for a docked
+        -- one. saveLayout has always written x/y; not reading them back left
+        -- every float coming home at createStack's default corner, so a
+        -- package update moved the player's floating panels. Before the
+        -- members join below, so their layout follows the container.
+        if not saved.dock and saved.x and saved.y then
+          stack.container:move(saved.x, saved.y)
+        end
         for _, memberName in ipairs(present) do
           mdw.widgets[memberName]._pendingStackId = nil
           mdw.addToStack(name, memberName)

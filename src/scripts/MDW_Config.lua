@@ -104,6 +104,10 @@ mdw.config = {
   -- style or platform differs (or one that hid the scrollbar entirely) can
   -- set it here.
   mainScrollBarWidth = 15,
+  -- How near an edge a DRAGGED floating group has to come before it snaps
+  -- flush to it - the main console area's own edges, and the edges of the
+  -- other floats. 0 turns snapping off and hands dragging back to the pixel.
+  floatSnapDistance = 8,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators

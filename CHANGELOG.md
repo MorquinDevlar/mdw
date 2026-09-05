@@ -10,6 +10,30 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- Floating groups snap while they are dragged: flush to the main console
+  area's edges, and to the other floats' edges both ways round - lined up in a
+  column, or sitting side by side and stacked. The right-hand edge stops short
+  of the console's scrollbar, so a snapped float never covers it. The distance
+  is `mdw.config.floatSnapDistance` (8); 0 restores pixel dragging. Each axis
+  snaps on its own, so a float can catch the top edge and stay free sideways.
+- `mdw.mainArea()` returns the main console area as `x, y, width, height` - the
+  rectangle `mdw.floatPos` and the snapping both measure against.
+- `mdw.restoreMainFont()` hands the main console back to the family MDW
+  captured before it applied the game's own, falling back to Mudlet's bundled
+  monospace if that family has gone too. A package that BUNDLES the font MDW
+  renders in should call it from its `sysUninstallPackage` handler: Mudlet
+  unloads a package's fonts while uninstalling it and then warns the player
+  that the profile's font is missing, and that check runs after the handler.
+  MDW's own full uninstall now uses the same function.
+
+### Fixed
+- A floating group came back at the default corner after a package update
+  instead of where the player left it. `saveLayout` has always recorded a
+  float's `x`/`y`, but `rebuildStacksFromLayout` restored a group's dock, row,
+  size and active tab and never those - and for a float the position IS the
+  whole placement.
+
 ## 0.8.2 - 2026-09-05
 
 ### Fixed

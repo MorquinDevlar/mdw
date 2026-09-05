@@ -870,6 +870,85 @@ function mdw.clampToWindow(x, y, w, h)
     mdw.clamp(y or minY, minY, math.max(minY, winH - (h or 0) - m))
 end
 
+---------------------------------------------------------------------------
+-- FLOAT SNAPPING
+---------------------------------------------------------------------------
+
+--- The floating groups a drag can snap against: on screen, undocked, and not
+-- the one being dragged. Docked groups are deliberately absent - they live in
+-- the sidebars, outside the area a float is being aligned within.
+local function snapNeighbours(dragged)
+  local out = {}
+  for _, w in pairs(mdw.widgets) do
+    if w ~= dragged and w.isStack and not w.docked and w.visible ~= false and w.container then
+      out[#out + 1] = w
+    end
+  end
+  return out
+end
+
+--- Nearest candidate to `value` within `dist`, or nil. Ties go to the first
+-- listed, which is why the container edges are pushed before the neighbours':
+-- against a float already sitting flush at an edge, the edge wins and the two
+-- agree rather than landing a pixel apart.
+local function nearest(value, candidates, dist)
+  local best, bestGap = nil, dist + 1
+  for _, c in ipairs(candidates) do
+    local gap = math.abs(value - c)
+    if gap <= dist and gap < bestGap then best, bestGap = c, gap end
+  end
+  return best
+end
+
+--- Snap a dragged float's top-left to the main console area's edges and to
+-- the other floats', within cfg.floatSnapDistance. The two axes are decided
+-- independently, so a drag can snap to one edge while staying free on the
+-- other.
+--
+-- The RIGHT edge stops short of the main console's scrollbar
+-- (mainScrollBarWidth), so a float snapped there never covers it - the same
+-- allowance a right-hand anchor keeps in mdw.floatPos.
+--
+-- Container edges are clamped into what a drag can actually reach
+-- (clampToWindow keeps a float resizeHitWidth from the window, so its borders
+-- stay grabbable): a target the drag would be pulled back off is worse than
+-- no target at all.
+--
+-- Both alignments are offered for every neighbour - edges FLUSH (left to left,
+-- right to right, so two floats line up in a column) and edges TOUCHING (right
+-- to left, bottom to top, so they sit side by side or stacked).
+-- @return x, y
+function mdw.snapFloat(dragged, x, y, w, h)
+  local cfg = mdw.config
+  local dist = cfg.floatSnapDistance or 0
+  if dist <= 0 or not dragged then return x, y end
+  w = w or dragged.container:get_width()
+  h = h or dragged.container:get_height()
+
+  local winW = (getMainWindowSize())
+  local m = cfg.resizeHitWidth or 0
+  local areaX, areaY, areaW, areaH = mdw.mainArea()
+  local left = math.max(areaX, m)
+  local right = math.min(areaX + areaW - cfg.mainScrollBarWidth, winW - m)
+  local xs = { left, right - w }
+  local ys = { areaY, areaY + areaH - h }
+
+  for _, o in ipairs(snapNeighbours(dragged)) do
+    local ox, oy = o.container:get_x(), o.container:get_y()
+    local ow, oh = o.container:get_width(), o.container:get_height()
+    xs[#xs + 1] = ox            -- left edges flush
+    xs[#xs + 1] = ox + ow - w   -- right edges flush
+    xs[#xs + 1] = ox - w        -- sitting against its left side
+    xs[#xs + 1] = ox + ow       -- sitting against its right side
+    ys[#ys + 1] = oy            -- top edges flush
+    ys[#ys + 1] = oy + oh - h   -- bottom edges flush
+    ys[#ys + 1] = oy - h        -- stacked above it
+    ys[#ys + 1] = oy + oh       -- stacked below it
+  end
+
+  return nearest(x, xs, dist) or x, nearest(y, ys, dist) or y
+end
+
 --- Clear all transient drag state (called when a drag ends or is cancelled).
 function mdw.resetDrag()
   local d = mdw.drag
@@ -994,9 +1073,12 @@ function mdw.handleDragMove(widget, event)
   -- The whole widget follows the cursor and stays floating. The header bar never
   -- triggers docking (no drop detection); only dragging a TAB onto a sidebar docks
   -- it. Keep it fully inside the main window (no dragging off-screen).
+  local boxW, boxH = widget.container:get_width(), widget.container:get_height()
   local newX, newY = mdw.clampToWindow(
-    mdw.drag.liveStartX + dx, mdw.drag.liveStartY + dy,
-    widget.container:get_width(), widget.container:get_height())
+    mdw.drag.liveStartX + dx, mdw.drag.liveStartY + dy, boxW, boxH)
+  -- Snapped AFTER the clamp, and to targets the clamp already allows, so the
+  -- two never fight over the same pixel.
+  newX, newY = mdw.snapFloat(widget, newX, newY, boxW, boxH)
   widget.container:move(newX, newY)
   if widget.isStack and mdw.resizeStackContent then mdw.resizeStackContent(widget) end
   mdw.updateResizeBorders(widget)
@@ -1702,24 +1784,33 @@ local FLOAT_ANCHORS = {
 -- @param boxW number, boxH number The box being placed
 -- @param margin number|nil
 -- @return x, y, or nil for an unknown anchor
+--- The MAIN CONSOLE AREA as a rectangle: the window less the visible
+-- sidebars, the header, the prompt bar and any chrome bars. Measured with the
+-- SAME arithmetic mdw.applyBorders reserves those strips with, dockGap
+-- included - counting a sidebar as its bare width put a float a dock gap out
+-- on that side against a correct top edge, which is what a caller sees at a
+-- corner.
+--
+-- The scrollbar is NOT taken off here: it belongs to the right edge alone, and
+-- the callers that push something against that edge subtract it themselves.
+-- @return x, y, width, height
+function mdw.mainArea()
+  local cfg = mdw.config
+  local winW, winH = getMainWindowSize()
+  local left = mdw.visibility.leftSidebar and (cfg.leftDockWidth + cfg.dockGap) or 0
+  local right = mdw.visibility.rightSidebar and (cfg.rightDockWidth + cfg.dockGap) or 0
+  local top = cfg.headerHeight + mdw.barsHeight("top")
+  local bottomChrome = (mdw.visibility.promptBar and cfg.promptBarHeight or 0)
+    + mdw.barsHeight("bottom")
+  return left, top, winW - left - right,
+    winH - top - (bottomChrome > 0 and bottomChrome + cfg.dockGap or 0)
+end
+
 function mdw.floatPos(anchor, boxW, boxH, margin)
   local weights = FLOAT_ANCHORS[anchor or "center"]
   if not weights then return nil end
   local cfg = mdw.config
-  local winW, winH = getMainWindowSize()
-  -- The SAME arithmetic mdw.applyBorders reserves the strips with, dockGap
-  -- included. Counting a sidebar as its bare width left an anchored float a
-  -- gap short on that side, against a correct one at the top - which is the
-  -- asymmetry a caller sees, since the dock gap paints as main background and
-  -- reads as part of it.
-  local leftOffset = mdw.visibility.leftSidebar and (cfg.leftDockWidth + cfg.dockGap) or 0
-  local rightOffset = mdw.visibility.rightSidebar and (cfg.rightDockWidth + cfg.dockGap) or 0
-  local mainWidth = winW - leftOffset - rightOffset
-  local topChrome = cfg.headerHeight + mdw.barsHeight("top")
-  local bottomChrome = (mdw.visibility.promptBar and cfg.promptBarHeight or 0)
-    + mdw.barsHeight("bottom")
-  local mainHeight = winH - topChrome
-    - (bottomChrome > 0 and bottomChrome + cfg.dockGap or 0)
+  local leftOffset, topChrome, mainWidth, mainHeight = mdw.mainArea()
   -- A centred box keeps the geometry it has always had, byte for byte: the
   -- margin is a corner concept, and applying it here would shift every
   -- existing float by half of it.

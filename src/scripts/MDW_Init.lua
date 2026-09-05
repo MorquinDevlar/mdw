@@ -1438,6 +1438,39 @@ function mdw.applyMainFont()
   end
 end
 
+--- Hand the MAIN CONSOLE back to the player's own font family - the one MDW
+-- captured before it first applied one (applyMainFont).
+--
+-- Two callers, and the second is the reason this is a function rather than a
+-- block inside the first. MDW's full uninstall calls it because MDW is going
+-- away. A CONSUMER calls it from its own sysUninstallPackage handler when the
+-- font MDW renders in is one that consumer ships: Mudlet unloads a package's
+-- fonts as part of uninstalling it, then checks whether the profile's display
+-- font still exists and moves it to the bundled default with a warning if it
+-- does not. That check runs after the handler, so the family has to be off the
+-- console by the time the handler returns. Re-resolving instead would not do:
+-- Mudlet raises the event BEFORE unloading the fonts, so the doomed family is
+-- still in getAvailableFonts() at that moment (the same reason
+-- mdw.onUninstall defers its revalidate by a tick).
+--
+-- The original may itself be gone by now - the package that shipped THAT font
+-- removed in the meantime - so it is checked, and Mudlet's bundled monospace
+-- stands in. Either way the player is left on a real monospace font.
+--
+-- A no-op when MDW never touched the console (no applyMainFont consumer),
+-- which is what makes it safe to call unconditionally.
+-- @return string|nil The family applied, or nil when there was nothing to do.
+function mdw.restoreMainFont()
+  local restore = mdw.config.originalMainFont
+  if not restore then return nil end
+  local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
+  if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[restore] then
+    restore = "Bitstream Vera Sans Mono"
+  end
+  pcall(setFont, "main", restore)
+  return restore
+end
+
 --- Another package came or went: it may ship the preferred font. Re-resolve
 -- against what is loaded NOW and re-apply only if the effective family
 -- changed. Silent on purpose (the setup-time echo is enough) and a no-op

@@ -1382,6 +1382,11 @@ check(mdw.promptSeparator._x == mdw.config.leftDockWidth
 
 -- 9. Save, tear down, and rebuild from the saved layout (package update path)
 mdw.gameSettings.TestGame = { promptBar = { worth = false } }
+-- A FLOATING group, put where a player would have dragged it. Its position is
+-- its whole placement - nothing else in the record says where a float goes -
+-- so the restore below has to bring it back to this exact spot.
+mdw.floatWidget("LateWidget")
+mdw.widgets[mdw.widgets["LateWidget"].stackId].container:move(517, 233)
 mdw.saveLayout()
 mdw.teardown()
 check(not mdw.isSetUp, "teardown completes")
@@ -1400,6 +1405,9 @@ check(mdw.config.mainFontSize == 12, "font size survived the reload")
 check(PRE_RUNS == 2 and LATE_RUNS == 2, "onReady registry survived the update and re-ran")
 check(mdw.widgets["PreWidget"] ~= nil and mdw.widgets["LateWidget"] ~= nil,
   "game widgets rebuilt after update without re-registration")
+check(mdw.widgets[mdw.widgets["LateWidget"].stackId].container:get_x() == 517
+  and mdw.widgets[mdw.widgets["LateWidget"].stackId].container:get_y() == 233,
+  "a floating group comes back at the position it was saved at")
 
 -- 9b. Examples toggled off while the layout file still records them: the
 -- saved home groups have no living members, so they must NOT restore as
@@ -1583,6 +1591,67 @@ check(mdw.getDockedWidgets("left")[1] == kgGroup, "dockWidget 'top' lands row-fi
 check(select(2, mdw.dockWidget("KeyGamma", "up")) == "invalid", "an unknown side is rejected")
 mdw.groupWidget("KeyBeta", "KeyAlpha")
 check(mdw.widgets[kbBetaGroup.name] == nil, "regrouping destroys the emptied group")
+
+-- 10d3. Float snapping: a dragged float lines up with the main console area's
+-- edges and with the other floats, within cfg.floatSnapDistance. Tested
+-- through mdw.snapFloat, which is where handleDragMove sends every position -
+-- the drag itself is Qt mouse events the harness has no way to produce.
+do
+  local dist = mdw.config.floatSnapDistance
+  local areaX, areaY, areaW = mdw.mainArea()
+  mdw.floatWidget("KeyGamma", { anchor = "topleft" })
+  local a = mdw.widgets[mdw.widgets["KeyGamma"].stackId]
+  local aw, ah = a.container:get_width(), a.container:get_height()
+  mdw.floatWidget("PreWidget") -- the neighbour the second half snaps against
+  -- Park every OTHER float far from the edges under test: they are snap
+  -- targets too, and the nearest one wins - which is the behaviour, but it
+  -- would make these checks depend on where earlier sections left things.
+  for _, o in pairs(mdw.widgets) do
+    if o.isStack and not o.docked and o.visible ~= false and o ~= a then
+      o.container:move(500, 400)
+    end
+  end
+
+  check((mdw.snapFloat(a, areaX + dist - 1, 900, aw, ah)) == areaX,
+    "a float near the area's left edge snaps flush to it")
+  check(select(2, mdw.snapFloat(a, 900, areaY + dist - 1, aw, ah)) == areaY,
+    "and near the top edge, to the top")
+  -- The right edge is the one the scrollbar rides on: snapped there, a float
+  -- must leave it showing.
+  local wantRight = areaX + areaW - mdw.config.mainScrollBarWidth - aw
+  check((mdw.snapFloat(a, wantRight + dist - 1, 900, aw, ah)) == wantRight,
+    "the right edge leaves the console's scrollbar showing")
+  check(wantRight + aw < areaX + areaW, "which is short of the area's own right edge")
+  -- One axis in range, the other not.
+  check(select(2, mdw.snapFloat(a, areaX + dist + 40, areaY + 1, aw, ah)) == areaY
+    and (mdw.snapFloat(a, areaX + dist + 40, areaY + 1, aw, ah)) == areaX + dist + 40,
+    "the two axes snap independently")
+
+  -- Against another float, parked above at 500,400 - clear of the area's own
+  -- edges, which are snap targets too and would otherwise win these by being
+  -- nearer: edges flush, and edges touching.
+  local b = mdw.widgets[mdw.widgets["PreWidget"].stackId]
+  local bw, bh = b.container:get_width(), b.container:get_height()
+  check((mdw.snapFloat(a, 500 + dist - 1, 900, aw, ah)) == 500,
+    "left edges line up with another float's")
+  check((mdw.snapFloat(a, 500 + bw + dist - 1, 900, aw, ah)) == 500 + bw,
+    "and a float dropped beside it sits against its right side")
+  check(select(2, mdw.snapFloat(a, 900, 400 + bh + dist - 1, aw, ah)) == 400 + bh,
+    "stacking below it touches the same way")
+  check((mdw.snapFloat(a, 500 + bw - aw + 1, 900, aw, ah)) == 500 + bw - aw,
+    "right edges line up too")
+
+  -- A float is never its own target: sitting exactly on b's spot, a drag well
+  -- away from every edge is left alone.
+  a.container:move(500, 400)
+  check((mdw.snapFloat(a, 950, 900, aw, ah)) == 950,
+    "past the distance nothing is pulled anywhere")
+
+  mdw.config.floatSnapDistance = 0
+  check((mdw.snapFloat(a, areaX + 1, 900, aw, ah)) == areaX + 1,
+    "floatSnapDistance 0 turns snapping off")
+  mdw.config.floatSnapDistance = dist
+end
 
 -- 10e. Dock width and occupant height
 local okWidth, _, appliedWidth = mdw.setDockWidth("left", 10)

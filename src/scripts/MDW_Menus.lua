@@ -1084,18 +1084,9 @@ function mdw.uninstall()
   if mdw.config.originalMainFontSize then
     setFontSize(mdw.config.originalMainFontSize)
   end
-  -- Only set when MDW actually applied a family to the main console. If that
-  -- family is gone since (the package shipping it was removed too), Qt would
-  -- substitute it silently - hand the player Mudlet's bundled monospace
-  -- instead, so either way they are left on a real monospace font.
-  if mdw.config.originalMainFont then
-    local restore = mdw.config.originalMainFont
-    local fontsOk, fonts = pcall(function() return getAvailableFonts and getAvailableFonts() end)
-    if fontsOk and type(fonts) == "table" and next(fonts) ~= nil and not fonts[restore] then
-      restore = "Bitstream Vera Sans Mono"
-    end
-    pcall(setFont, "main", restore)
-  end
+  -- Only when MDW actually applied a family to the main console, and never to
+  -- a family that has since gone with the package that shipped it.
+  mdw.restoreMainFont()
   setBackgroundColor("main", 0, 0, 0)
 
   -- Delete the saved layout so no MDW settings persist
