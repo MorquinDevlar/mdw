@@ -10,6 +10,18 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.createBar` takes a `reflow = function(bar)` callback and calls it on
+  every layout pass - window resize, sidebar toggle, splitter drag,
+  font-family change - and once as the bar is created. A bar's text now
+  follows a drag live, the way widget content does, instead of waiting for
+  the package's own ticker to repaint it. Bars without a `reflow` are
+  unchanged.
+
+### Fixed
+- A font-family change re-wraps and re-centers chrome bars instead of leaving
+  them laid out for the previous font's glyph width.
+
 ## 0.9.0 - 2026-09-05
 
 ### Added

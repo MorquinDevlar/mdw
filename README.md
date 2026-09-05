@@ -552,12 +552,22 @@ mdw.onReady["MyGame"] = function()
     name = "MyStatus",
     edge = "top",
     console = true,          -- a MiniConsole to render into
+    reflow = renderMyStatus,  -- repaint; called on every layout pass
     -- height = 24,          -- default mdw.config.barHeight
     -- css = "...",          -- custom background; omit for the theme's
   })
-  bar.console:cecho("<green>Ready")
 end
 ```
+
+Give a bar a `reflow` and MDW calls it whenever the bar's width changes -
+window resize, sidebar toggle, splitter drag, font-family change - and once
+as the bar is created, so the callback is the only place that has to paint
+it. This is the bar's half of `Widget:reflow`: MDW replays a widget's echo
+buffer for it, but a bar has no buffer, so the owner supplies the repaint. It
+runs on every mouse move of a live drag, unlike a widget's deferred reflow,
+so it must be a cheap repaint from state - clear the console and redraw, no
+buffering and no `send`. A bar without a `reflow` behaves as before: MDW
+resizes it and leaves its content alone.
 
 A bar's console is seated so its text sits vertically centered in the strip
 (a MiniConsole paints from its top edge, so it would otherwise hug the top),

@@ -1674,6 +1674,10 @@ function mdw.applyFontFamily()
   for _, bar in pairs(mdw.bars or {}) do
     if bar.console then bar.console:setFont(family) end
   end
+  -- The new family has a different glyph advance, so every bar's wrap and
+  -- vertical seating were computed for the old one. layoutBars redoes both
+  -- and repaints through each bar's reflow.
+  if mdw.layoutBars then mdw.layoutBars() end
 
   mdw.buildStyles()
   mdw.applyThemeStyles()

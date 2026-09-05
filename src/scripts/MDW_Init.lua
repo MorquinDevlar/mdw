@@ -434,6 +434,14 @@ function mdw.layoutBars()
         end
         centerBarConsole(bar) -- re-centers after a font-size change too
       end
+      -- The content half of the same pass: MDW just changed the width the
+      -- bar's text was laid out for, and only the owner can repaint it.
+      -- Widgets get this through Widget:reflow; a bar has no echo buffer to
+      -- replay, so the owner supplies the repaint itself. Unconditional
+      -- during live drags - a bar is one strip of text repainted from state,
+      -- the liveReflow case rather than the deferred one - which is why the
+      -- callback must stay a cheap repaint and never buffer or send.
+      if bar.reflow then bar.reflow(bar) end
     end
   end
   if mdw.promptSeparator then
@@ -448,13 +456,24 @@ end
 -- MiniConsole inside (otherwise the bar is just its background label); css
 -- for a custom background stylesheet (set it and theme changes leave the
 -- bar alone; omit it for the theme's widget background); visible = false to
--- start hidden. Idempotent like Widget:new: an existing name returns the
--- existing bar. Returns the bar object - render into bar.console.
+-- start hidden; reflow = function(bar) to repaint the bar's content, called
+-- on every layout pass (window resize, sidebar toggle, splitter drag, font
+-- change) and once as the bar is created. Idempotent like Widget:new: an
+-- existing name returns the existing bar. Returns the bar object - render
+-- into bar.console.
 function mdw.createBar(opts)
   opts = opts or {}
   local name = opts.name
   assert(type(name) == "string" and name ~= "", "Bar name is required")
-  if mdw.bars[name] then return mdw.bars[name] end
+  if mdw.bars[name] then
+    -- A rebuild re-declares its bars; take the fresh renderer (the old one is
+    -- an upvalue of the previous script run) and paint with it right away.
+    if opts.reflow then
+      mdw.bars[name].reflow = opts.reflow
+      opts.reflow(mdw.bars[name])
+    end
+    return mdw.bars[name]
+  end
   local cfg = mdw.config
 
   local bar = {
@@ -463,6 +482,7 @@ function mdw.createBar(opts)
     height = opts.height or cfg.barHeight,
     visible = opts.visible ~= false,
     css = opts.css,
+    reflow = opts.reflow,
     owner = mdw._currentOwner,
   }
 

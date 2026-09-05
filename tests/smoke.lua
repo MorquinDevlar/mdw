@@ -1125,6 +1125,40 @@ check(barPad > 0 and topBar.console._y == barPad
 mdw.layoutBars()
 check(topBar.console._y == barPad, "and stays centered through a layout pass")
 check(botBar.back._css == "background-color: red;", "custom css applied to the bar")
+
+-- A bar's content is the owner's to paint - there is no echo buffer for MDW to
+-- replay - so a layout pass hands it the reflow cue a widget gets, AFTER the
+-- console has been resized, so the renderer measures the width it paints for.
+-- Live drags included: a bar is one strip repainted from state, which is the
+-- liveReflow case and not the deferred one.
+local barPaints, barWidthAtPaint = 0, nil
+local liveBar = mdw.createBar({ name = "LiveInfo", edge = "top", height = 20,
+  console = true,
+  reflow = function(b) barPaints = barPaints + 1; barWidthAtPaint = b.console:get_width() end })
+check(barPaints == 1, "a bar with a reflow paints once as it is created")
+mdw.layoutBars()
+check(barPaints == 2 and barWidthAtPaint == liveBar.console:get_width(),
+  "layout pass repaints the bar at its post-resize width")
+local dragStart = mdw.config.leftDockWidth
+local paintsBeforeDrag = barPaints
+fire("MDW_LeftSplitter", "click", { globalX = dragStart, globalY = 400 })
+fire("MDW_LeftSplitter", "move", { globalX = dragStart + 40, globalY = 400 })
+check(barPaints > paintsBeforeDrag and barWidthAtPaint == liveBar.console:get_width(),
+  "bar text follows a live splitter drag instead of waiting for the release")
+fire("MDW_LeftSplitter", "release", {})
+mdw.applyDockWidth("left", dragStart)
+-- A rebuild re-declares its bars, and the old renderer is an upvalue of the
+-- previous script run: the fresh one replaces it and paints immediately.
+local rebuiltPaints = 0
+local same = mdw.createBar({ name = "LiveInfo", edge = "top",
+  reflow = function() rebuiltPaints = rebuiltPaints + 1 end })
+check(same == liveBar and rebuiltPaints == 1,
+  "re-declaring a bar adopts the new reflow and paints with it")
+local paintsAfterSwap = barPaints
+mdw.layoutBars()
+check(rebuiltPaints == 2 and barPaints == paintsAfterSwap,
+  "and the superseded reflow is not called again")
+mdw.removeBar("LiveInfo")
 -- Dragging the prompt splitter must resize the prompt bar only - the drag
 -- math subtracts the bottom bar back out (off-by-26 would land elsewhere).
 local phBefore = cfgB.promptBarHeight
