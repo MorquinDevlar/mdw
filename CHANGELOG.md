@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.8.2 - 2026-09-05
+
 ### Fixed
 - `mdw.floatPos` measured the main console area from a sidebar's bare width,
   where `applyBorders` reserves that width plus `dockGap`, and took no dock gap
