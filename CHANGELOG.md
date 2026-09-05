@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.1 - 2026-09-05
+
 ### Added
 - `mdw.createBar` takes a `reflow = function(bar)` callback and calls it on
   every layout pass - window resize, sidebar toggle, splitter drag,
