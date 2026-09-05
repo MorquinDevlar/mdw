@@ -1707,12 +1707,19 @@ function mdw.floatPos(anchor, boxW, boxH, margin)
   if not weights then return nil end
   local cfg = mdw.config
   local winW, winH = getMainWindowSize()
-  local leftOffset = mdw.visibility.leftSidebar and cfg.leftDockWidth or 0
-  local rightOffset = mdw.visibility.rightSidebar and cfg.rightDockWidth or 0
+  -- The SAME arithmetic mdw.applyBorders reserves the strips with, dockGap
+  -- included. Counting a sidebar as its bare width left an anchored float a
+  -- gap short on that side, against a correct one at the top - which is the
+  -- asymmetry a caller sees, since the dock gap paints as main background and
+  -- reads as part of it.
+  local leftOffset = mdw.visibility.leftSidebar and (cfg.leftDockWidth + cfg.dockGap) or 0
+  local rightOffset = mdw.visibility.rightSidebar and (cfg.rightDockWidth + cfg.dockGap) or 0
   local mainWidth = winW - leftOffset - rightOffset
   local topChrome = cfg.headerHeight + mdw.barsHeight("top")
+  local bottomChrome = (mdw.visibility.promptBar and cfg.promptBarHeight or 0)
+    + mdw.barsHeight("bottom")
   local mainHeight = winH - topChrome
-    - (mdw.visibility.promptBar and cfg.promptBarHeight or 0) - mdw.barsHeight("bottom")
+    - (bottomChrome > 0 and bottomChrome + cfg.dockGap or 0)
   -- A centred box keeps the geometry it has always had, byte for byte: the
   -- margin is a corner concept, and applying it here would shift every
   -- existing float by half of it.

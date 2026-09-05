@@ -10,6 +10,14 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- `mdw.floatPos` measured the main console area from a sidebar's bare width,
+  where `applyBorders` reserves that width plus `dockGap`, and took no dock gap
+  off the bottom either. An anchored float sat a dock gap short on those edges -
+  visibly so at a corner, where the top gap was right and the side gap was not.
+  Both now use the same arithmetic; a centred float moves by at most half a
+  dock gap, onto the true centre.
+
 ## 0.8.1 - 2026-09-05
 
 ### Fixed

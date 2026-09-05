@@ -372,9 +372,11 @@ mdw.floatWidget("Connection", { anchor = "topright" })
 
 The corner is a corner of the **main console area**: what is left once the
 visible sidebars, the header, the prompt bar and any chrome bars are taken
-out. Turn a sidebar off and the same anchor reaches the window edge. The
-positions themselves are available as `mdw.floatPos(anchor, w, h, margin)` if
-you are placing something of your own.
+out - measured the same way `applyBorders` reserves those strips, `dockGap`
+included, so every edge of a corner shows the same margin. Turn a sidebar off
+and the same anchor reaches the window edge. The positions themselves are
+available as `mdw.floatPos(anchor, w, h, margin)` if you are placing something
+of your own.
 
 A right-hand anchor also keeps `cfg.mainScrollBarWidth` (15) clear on top of
 the margin: Mudlet draws the main console's scrollbar inside the console's own

@@ -1530,8 +1530,16 @@ do
   -- it inside the console's own right edge, so an anchor measured to that edge
   -- alone puts the panel underneath it.
   check(box:get_x() + box:get_width()
-    == 1600 - mdw.config.rightDockWidth - mdw.config.mainScrollBarWidth - margin,
-    "and a margin in from the right sidebar's edge, past the console scrollbar")
+    == 1600 - mdw.config.rightDockWidth - mdw.config.dockGap
+      - mdw.config.mainScrollBarWidth - margin,
+    "and a margin in from the console's real right edge, past its scrollbar")
+  -- The point of matching applyBorders: the two edges a topright corner sits
+  -- against show the SAME strip of background. Counting a sidebar as its bare
+  -- width made the right gap a dockGap short of the top one.
+  check((box:get_y() - topChrome)
+    == (1600 - mdw.config.rightDockWidth - mdw.config.dockGap
+        - mdw.config.mainScrollBarWidth) - (box:get_x() + box:get_width()),
+    "the gap above the box equals the gap to its right")
   -- The area is what moves when the chrome does: with the sidebar off, the
   -- same anchor reaches the window edge. Read off floatPos rather than by
   -- toggling the sidebar for real - that stows and re-floats every widget in
@@ -1543,18 +1551,21 @@ do
     "with the right sidebar off the same anchor reaches the window edge")
   mdw.visibility.rightSidebar = true
   mdw.floatWidget("KeyGamma", { anchor = "topleft", margin = 0 })
-  check(box:get_x() == mdw.config.leftDockWidth and box:get_y() == topChrome,
-    "margin 0 puts a corner flush, past the left sidebar")
-  check((mdw.floatPos("topleft", 200, 100, 0)) == mdw.config.leftDockWidth,
+  check(box:get_x() == mdw.config.leftDockWidth + mdw.config.dockGap
+    and box:get_y() == topChrome,
+    "margin 0 puts a corner flush, past the left sidebar and its gap")
+  check((mdw.floatPos("topleft", 200, 100, 0))
+    == mdw.config.leftDockWidth + mdw.config.dockGap,
     "the scrollbar allowance is the right edge's alone - a left anchor is flush")
   -- Centring is the anchor with no edge to sit against, so the margin must
   -- not reach it - every float MDW already places goes through this path.
   local cx, cy = mdw.floatPos("center", 200, 100)
   local mx, my = mdw.floatPos("center", 200, 100, 99)
   check(cx == mx and cy == my, "a margin never moves a centred box")
-  check(cx == mdw.config.leftDockWidth
-    + (1600 - mdw.config.leftDockWidth - mdw.config.rightDockWidth - 200) / 2,
-    "and neither does the scrollbar allowance - centring is untouched")
+  check(cx == mdw.config.leftDockWidth + mdw.config.dockGap
+    + (1600 - (mdw.config.leftDockWidth + mdw.config.dockGap)
+       - (mdw.config.rightDockWidth + mdw.config.dockGap) - 200) / 2,
+    "and neither does the scrollbar allowance - centring is over the true area")
   check(cx == mdw.centeredFloatPos(200, 100), "centeredFloatPos is that same case")
   -- ...and the centre still cascades past an existing float, which is the one
   -- thing a named corner does NOT do (the caller asked for that corner).
