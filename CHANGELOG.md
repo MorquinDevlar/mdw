@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.8.1 - 2026-09-05
+
 ### Fixed
 - A float anchored `topright` or `bottomright` landed underneath the main
   console's scrollbar, which Mudlet draws inside the console's own right edge.
