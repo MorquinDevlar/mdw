@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.0 - 2026-09-05
+
 ### Added
 - Floating groups snap while they are dragged: flush to the main console
   area's edges, and to the other floats' edges both ways round - lined up in a
