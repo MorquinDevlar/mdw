@@ -1526,26 +1526,35 @@ do
   check(select(2, mdw.floatWidget("KeyGamma", { anchor = "topright" })) == "ok",
     "an anchor moves a group that is already floating, unlike a bare float")
   check(box:get_y() == topChrome + margin, "topright sits a margin below the chrome")
+  -- A right anchor also keeps the main console's scrollbar clear: Mudlet draws
+  -- it inside the console's own right edge, so an anchor measured to that edge
+  -- alone puts the panel underneath it.
   check(box:get_x() + box:get_width()
-    == 1600 - mdw.config.rightDockWidth - margin,
-    "and a margin in from the right sidebar's edge")
+    == 1600 - mdw.config.rightDockWidth - mdw.config.mainScrollBarWidth - margin,
+    "and a margin in from the right sidebar's edge, past the console scrollbar")
   -- The area is what moves when the chrome does: with the sidebar off, the
   -- same anchor reaches the window edge. Read off floatPos rather than by
   -- toggling the sidebar for real - that stows and re-floats every widget in
   -- it, and the dock rows later sections assert on are not this test's to
   -- rearrange.
   mdw.visibility.rightSidebar = false
-  check(mdw.floatPos("topright", 200, 100) == 1600 - 200 - margin,
+  check(mdw.floatPos("topright", 200, 100)
+    == 1600 - 200 - mdw.config.mainScrollBarWidth - margin,
     "with the right sidebar off the same anchor reaches the window edge")
   mdw.visibility.rightSidebar = true
   mdw.floatWidget("KeyGamma", { anchor = "topleft", margin = 0 })
   check(box:get_x() == mdw.config.leftDockWidth and box:get_y() == topChrome,
     "margin 0 puts a corner flush, past the left sidebar")
+  check((mdw.floatPos("topleft", 200, 100, 0)) == mdw.config.leftDockWidth,
+    "the scrollbar allowance is the right edge's alone - a left anchor is flush")
   -- Centring is the anchor with no edge to sit against, so the margin must
   -- not reach it - every float MDW already places goes through this path.
   local cx, cy = mdw.floatPos("center", 200, 100)
   local mx, my = mdw.floatPos("center", 200, 100, 99)
   check(cx == mx and cy == my, "a margin never moves a centred box")
+  check(cx == mdw.config.leftDockWidth
+    + (1600 - mdw.config.leftDockWidth - mdw.config.rightDockWidth - 200) / 2,
+    "and neither does the scrollbar allowance - centring is untouched")
   check(cx == mdw.centeredFloatPos(200, 100), "centeredFloatPos is that same case")
   -- ...and the centre still cascades past an existing float, which is the one
   -- thing a named corner does NOT do (the caller asked for that corner).

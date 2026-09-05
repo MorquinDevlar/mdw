@@ -1718,6 +1718,12 @@ function mdw.floatPos(anchor, boxW, boxH, margin)
   -- existing float by half of it.
   local gap = (anchor == nil or anchor == "center") and 0
     or (tonumber(margin) or cfg.floatMargin)
+  -- The main console's scrollbar is drawn INSIDE the console's right edge, so
+  -- the usable area stops short of it - but only for something pushed against
+  -- that edge. Taken off the width before the split rather than added to the
+  -- gap, so a left anchor still starts at the true left and a CENTRED box is
+  -- untouched (weights[1] is 1 only for the two right-hand anchors).
+  if weights[1] == 1 then mainWidth = mainWidth - cfg.mainScrollBarWidth end
   local freeW = math.max(0, mainWidth - boxW - gap * 2)
   local freeH = math.max(0, mainHeight - boxH - gap * 2)
   return leftOffset + gap + freeW * weights[1], topChrome + gap + freeH * weights[2]

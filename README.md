@@ -376,6 +376,11 @@ out. Turn a sidebar off and the same anchor reaches the window edge. The
 positions themselves are available as `mdw.floatPos(anchor, w, h, margin)` if
 you are placing something of your own.
 
+A right-hand anchor also keeps `cfg.mainScrollBarWidth` (15) clear on top of
+the margin: Mudlet draws the main console's scrollbar inside the console's own
+right edge, so an anchor measured to that edge alone puts the panel underneath
+it. Left anchors and centring are untouched.
+
 Anchored placement is exact - no cascade. A centred float steps down-and-left
 past any float already there so titles stay visible, because a centred reveal
 has no opinion about where it lands; a caller who named a corner does, so two

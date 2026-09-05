@@ -10,6 +10,13 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- A float anchored `topright` or `bottomright` landed underneath the main
+  console's scrollbar, which Mudlet draws inside the console's own right edge.
+  Right-hand anchors now keep `mdw.config.mainScrollBarWidth` (15) clear on top
+  of the margin; set it lower on a profile whose scrollbar is narrower or
+  hidden. Left anchors and centred floats are unchanged.
+
 ## 0.8.0 - 2026-09-04
 
 ### Added

@@ -97,6 +97,13 @@ mdw.config = {
   -- (mdw.floatPos). Only corner anchors use it - a centred float has no edge
   -- to sit against.
   floatMargin = 10,
+  -- Mudlet draws the MAIN CONSOLE's scrollbar inside the console's own right
+  -- edge, so a float anchored to that edge lands underneath it. Right-hand
+  -- anchors keep this much clear on top of floatMargin. Not measured, because
+  -- Mudlet exposes no way to ask: it is Qt's usual width, and a profile whose
+  -- style or platform differs (or one that hid the scrollbar entirely) can
+  -- set it here.
+  mainScrollBarWidth = 15,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators
