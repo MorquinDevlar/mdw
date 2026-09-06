@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.2 - 2026-09-06
+
 ### Added
 - A float left sitting on an edge of the main console area is ATTACHED to it:
   it wears a lighter resize border, and it travels with that edge when the
