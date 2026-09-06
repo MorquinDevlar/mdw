@@ -10,6 +10,29 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- A float left sitting on an edge of the main console area is ATTACHED to it:
+  it wears a lighter resize border, and it travels with that edge when the
+  chrome moves - a sidebar dragged wider, a sidebar or the prompt bar toggled,
+  a chrome bar appearing, the window resized. Each axis attaches on its own.
+  Attachment is read off the float's position, so one restored from the layout
+  on an edge is attached like a just-dragged one, and dragging it clear
+  detaches it.
+
+### Changed
+- Snapping a float to the main console area's own edges leaves
+  `mdw.config.floatSnapInset` (5) of clearance instead of landing flush, so a
+  snapped panel sits a few pixels off the top bar and off the console's
+  scrollbar rather than against them - the clearance the left edge already got
+  from the dock gap. Snapping to another float is unchanged (still flush).
+
+### Fixed
+- Closing a floating panel with its tab x and opening it again brings it back
+  where it was, instead of centring it. A sole member's x now closes its
+  GROUP, the way the Widgets menu already did, so nothing destroys the record
+  of where the panel was; a group closed as a whole also stays closed across a
+  profile load, which it previously did not.
+
 ## 0.9.1 - 2026-09-05
 
 ### Added

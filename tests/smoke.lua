@@ -1286,6 +1286,49 @@ mdw.pendingLayouts["RejoinHost"] = nil
 mdw.pendingLayouts["RejoinHostee"] = nil
 mdw.saveLayout()
 
+-- 7a1b. A FLOATING panel closed with its tab x, across that same re-join. The
+-- close hides the GROUP - a sole member's close is its group's close - so the
+-- group's record is the only thing carrying "closed", and its box the only
+-- thing carrying where it was. Detaching the member instead destroyed the
+-- group, and the reveal then had nothing left to come back to but the centre.
+local function seedFloatGame()
+  mdw.gamePackages["FloatGameUI"] = "FloatGame"
+  mdw.onReady["FloatGame"] = function()
+    mdw.Widget:new({ name = "FloatPanel", dock = "left" })
+  end
+end
+seedFloatGame()
+mdw.runReadyCallbacks("FloatGame")
+mdw.floatWidget("FloatPanel")
+local fpGroup = mdw.widgets[mdw.widgets["FloatPanel"].stackId]
+fpGroup.container:move(700, 300)
+mdw.closeStackMember(fpGroup, "FloatPanel")
+check(fpGroup.visible == false and mdw.widgets["FloatPanel"].stackId == fpGroup.name,
+  "the x on a sole member hides its group instead of destroying it")
+check(mdw.isWidgetShown(mdw.widgets["FloatPanel"]) == false, "which reads as closed")
+mdw.saveLayout()
+raiseEvent("sysUninstallPackage", "FloatGameUI")
+seedFloatGame()
+mdw.runReadyCallbacks("FloatGame")
+local fpBack = mdw.widgets[mdw.widgets["FloatPanel"].stackId]
+check(fpBack.visible == false, "a floating panel closed by its x comes back closed")
+check(fpBack.container:get_x() == 700 and fpBack.container:get_y() == 300,
+  "at the box it was closed at")
+mdw.showWidget("FloatPanel")
+check(fpBack.visible ~= false and fpBack.container:get_x() == 700
+  and fpBack.container:get_y() == 300,
+  "and the reveal opens it there, not floating in the centre")
+mdw.closeStackMember(fpBack, "FloatPanel")
+mdw.toggleWidget("FloatPanel") -- the Widgets-menu checkbox: the other opener
+check(fpBack.visible ~= false and fpBack.container:get_x() == 700,
+  "as does the menu, which centres only a group that remembers a DOCK")
+raiseEvent("sysUninstallPackage", "FloatGameUI")
+mdw.onReady["FloatGame"] = nil
+mdw.gamePackages["FloatGameUI"] = nil
+mdw.pendingLayouts["FloatPanel"] = nil
+mdw.pendingLayouts[fpGroup.name] = nil
+mdw.saveLayout()
+
 -- 7a2. mdw.swapPackage: replacing a game package on its behalf. A package
 -- cannot reliably swap ITSELF - the code doing it is inside the thing being
 -- uninstalled, so it cannot check the result or report a failure, and Mudlet
@@ -1646,19 +1689,27 @@ do
     end
   end
 
+  local inset = mdw.config.floatSnapInset
+  local wantTop = areaY + inset
   check((mdw.snapFloat(a, areaX + dist - 1, 900, aw, ah)) == areaX,
     "a float near the area's left edge snaps flush to it")
-  check(select(2, mdw.snapFloat(a, 900, areaY + dist - 1, aw, ah)) == areaY,
-    "and near the top edge, to the top")
+  check(select(2, mdw.snapFloat(a, 900, wantTop + dist - 1, aw, ah)) == wantTop,
+    "and near the top edge, to an inset off it")
+  -- The left edge is inset already: mainArea starts it a dockGap past the
+  -- sidebar. The inset on the other three is what matches that clearance.
+  check(areaX == mdw.config.leftDockWidth + mdw.config.dockGap
+    and inset == mdw.config.dockGap,
+    "which is the clearance the left edge gets from the dock gap")
   -- The right edge is the one the scrollbar rides on: snapped there, a float
-  -- must leave it showing.
-  local wantRight = areaX + areaW - mdw.config.mainScrollBarWidth - aw
+  -- must leave it showing, and the inset again.
+  local wantRight = areaX + areaW - mdw.config.mainScrollBarWidth - inset - aw
   check((mdw.snapFloat(a, wantRight + dist - 1, 900, aw, ah)) == wantRight,
-    "the right edge leaves the console's scrollbar showing")
-  check(wantRight + aw < areaX + areaW, "which is short of the area's own right edge")
+    "the right edge leaves the console's scrollbar showing, inset as well")
+  check(wantRight + aw + mdw.config.mainScrollBarWidth < areaX + areaW,
+    "which is short of the area's own right edge")
   -- One axis in range, the other not.
-  check(select(2, mdw.snapFloat(a, areaX + dist + 40, areaY + 1, aw, ah)) == areaY
-    and (mdw.snapFloat(a, areaX + dist + 40, areaY + 1, aw, ah)) == areaX + dist + 40,
+  check(select(2, mdw.snapFloat(a, areaX + dist + 40, wantTop + 1, aw, ah)) == wantTop
+    and (mdw.snapFloat(a, areaX + dist + 40, wantTop + 1, aw, ah)) == areaX + dist + 40,
     "the two axes snap independently")
 
   -- Against another float, parked above at 500,400 - clear of the area's own
@@ -1685,6 +1736,60 @@ do
   check((mdw.snapFloat(a, areaX + 1, 900, aw, ah)) == areaX + 1,
     "floatSnapDistance 0 turns snapping off")
   mdw.config.floatSnapDistance = dist
+end
+
+-- 10d4. Edge attachment: a float sitting on an edge of the snap rectangle is
+-- carried along when the chrome under it moves - a sidebar dragged wider, a
+-- sidebar or the prompt bar toggled, the window resized - and says so with a
+-- lighter border. Derived from the position, so the check is: put one there,
+-- move the chrome, see where it went.
+do
+  local a = mdw.widgets[mdw.widgets["KeyGamma"].stackId]
+  local aw, ah = a.container:get_width(), a.container:get_height()
+  local left, top, right = mdw.floatSnapEdges()
+  local free = mdw.widgets[mdw.widgets["PreWidget"].stackId]
+  free.container:move(600, 500)
+  mdw.updateResizeBorders(free)
+
+  a.container:move(mdw.snapFloat(a, left + 2, top + 2, aw, ah))
+  mdw.updateResizeBorders(a)
+  check(a.container:get_x() == left and a.container:get_y() == top,
+    "a drag near the top-left corner lands on both edges")
+  check(a.anchorX == "left" and a.anchorY == "top", "which reads as attached to both")
+  check(a.resizeLeft._css == mdw.styles.resizeLeftAnchored
+    and a.resizeTopLeft._css == mdw.styles.resizeCornerTLAnchored,
+    "and wears the attached border, edges and corners alike")
+  check(free.anchorX == nil and free.anchorY == nil
+    and free.resizeLeft._css == mdw.styles.resizeLeft,
+    "a float out in the middle is attached to nothing and keeps the plain border")
+
+  local wasWidth = mdw.config.leftDockWidth
+  mdw.setDockWidth("left", wasWidth + 60)
+  check(a.container:get_x() == (mdw.floatSnapEdges()) and a.container:get_x() ~= left,
+    "a wider left sidebar carries the float attached to that edge along")
+  check(a.anchorX == "left", "and it is still attached afterwards")
+  check(free.container:get_x() == 600, "the unattached float is left where it was")
+
+  -- The other axis, and the edge that is not a window edge: the right one
+  -- rides on the scrollbar allowance, so it moves by the sidebar's delta too.
+  a.container:move(mdw.snapFloat(a, right - aw - 2, 500, aw, ah))
+  mdw.updateResizeBorders(a)
+  check(a.anchorX == "right" and a.anchorY == nil,
+    "parked on the right edge only, a float is attached on that axis alone")
+  local wasRight = mdw.config.rightDockWidth
+  mdw.setDockWidth("right", wasRight + 60)
+  check(a.container:get_x() + aw == select(3, mdw.floatSnapEdges()),
+    "and follows the right edge in")
+  check(a.container:get_y() == 500, "while the free axis stays put")
+  mdw.setDockWidth("right", wasRight)
+  mdw.setDockWidth("left", wasWidth)
+
+  -- Dragged off the edge, it is a plain float again - nothing to invalidate.
+  a.container:move(mdw.snapFloat(a, 700, 500, aw, ah))
+  mdw.updateResizeBorders(a)
+  check(a.anchorX == nil and a.anchorY == nil
+    and a.resizeLeft._css == mdw.styles.resizeLeft,
+    "dragged clear of every edge it detaches, border and all")
 end
 
 -- 10e. Dock width and occupant height

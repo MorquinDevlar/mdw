@@ -449,6 +449,11 @@ function mdw.layoutBars()
       + mdw.barsHeight("bottom")
     mdw.promptSeparator:move(nil, -stackH - cfg.dockGap)
   end
+  -- Every route that moves the main console area's edges ends here - window
+  -- resize, sidebar toggle, dock splitter drag and prompt height all through
+  -- updatePromptBar, and a bar being created, removed or hidden directly - so
+  -- this is where the floats attached to those edges follow them.
+  if mdw.repositionAnchoredFloats then mdw.repositionAnchoredFloats() end
 end
 
 --- Create a chrome bar. opts: name (required); edge "top"/"bottom" (default

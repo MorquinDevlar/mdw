@@ -396,12 +396,31 @@ the margin: Mudlet draws the main console's scrollbar inside the console's own
 right edge, so an anchor measured to that edge alone puts the panel underneath
 it. Left anchors and centring are untouched.
 
-A float the player DRAGS snaps flush when an edge comes within
+A float the player DRAGS snaps when an edge comes within
 `cfg.floatSnapDistance` (8) of the main console area's edges or of another
 float's - left-to-left and right-to-right so panels line up, right-to-left and
-bottom-to-top so they sit side by side or stacked. The right-hand edge stops
-short of `cfg.mainScrollBarWidth`, so a snapped float never covers the
-console's scrollbar. Each axis is decided on its own; 0 turns it off.
+bottom-to-top so they sit side by side or stacked. Each axis is decided on its
+own; 0 turns it off.
+
+Against the area's own edges it snaps `cfg.floatSnapInset` (5) short rather
+than flush, so a snapped panel sits a few pixels off the top bar and the window
+edge instead of against them. The left edge takes no inset of its own - the
+area already starts a `dockGap` past the sidebar, which is the clearance the
+other three are being given. The right edge stops short of
+`cfg.mainScrollBarWidth` as well, so a snapped float never covers the console's
+scrollbar.
+
+A float left sitting on one of those edges is ATTACHED to it: it wears a
+lighter resize border, and it travels with the edge when the chrome under it
+moves - a sidebar dragged wider, a sidebar or the prompt bar toggled, a chrome
+bar appearing, the window resized. Each axis attaches on its own, so a panel
+against the right edge follows the sidebar in while keeping its own height off
+the top. Attachment is derived from where the float IS
+(`mdw.updateFloatAnchors`, reported as `anchorX`/`anchorY`), so a float
+restored from the layout file on an edge is attached exactly as a
+just-dragged one is, and dragging it clear detaches it. It applies to a float
+the player put on an edge; a corner ANCHOR (above) places a panel a
+`cfg.floatMargin` off the edges, which is not on them.
 
 Anchored placement is exact - no cascade. A centred float steps down-and-left
 past any float already there so titles stay visible, because a centred reveal
@@ -409,9 +428,11 @@ has no opinion about where it lands; a caller who named a corner does, so two
 panels anchored to the same corner sit on top of each other.
 
 Placement is a one-off, not a rule: MDW saves a float's `x`/`y` in the layout,
-and the scripted reveal (`mdw.showWidget`) brings a hidden float back where it
-was. So anchor it once, on your first run, and the player's own arrangement
-wins from then on.
+and every reveal - the scripted `mdw.showWidget`, the Widgets menu, the tab x
+undone - brings a hidden float back where it was. (Only a group that remembers
+a DOCK comes back floating in the centre from the menu, since there is no way
+to drag it home.) So anchor it once, on your first run, and the player's own
+arrangement wins from then on.
 
 ### Reacting Without Owning Widgets
 

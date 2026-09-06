@@ -26,6 +26,14 @@ header dropdowns.
 - **Layout restore owns placement.** During restore, saved-group members carry
   `_pendingStackId`; code that places widgets by default must skip them.
   `saveLayout` is suppressed while `_restoringLayout` is set.
+- **A float's edge attachment is DERIVED, never stored.** `anchorX`/`anchorY`
+  are recomputed from the container's position against `mdw.floatSnapEdges()`
+  every time `updateResizeBorders` runs - which every path that moves a float
+  ends in - so nothing persists them and nothing has to invalidate them. That
+  is what makes a float restored from the layout file on an edge attached for
+  the same reason a just-dragged one is. `mdw.layoutBars` is the single hook
+  that carries attached floats along, because every route that moves the main
+  console area's edges ends there.
 
 ## The consumer contract (game packages)
 

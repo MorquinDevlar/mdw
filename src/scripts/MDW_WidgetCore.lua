@@ -166,7 +166,7 @@ function mdw.createResizeBorders(widget)
       name = baseName .. spec.suffix,
       x = 0, y = 0, width = size, height = size,
     }))
-    border:setStyleSheet(mdw.styles[spec.style])
+    border:setStyleSheet(mdw.resizeBorderStyle(widget, spec))
     if spec.corner then
       pcall(function() border:setCursor(spec.cursor) end)
     else
@@ -900,19 +900,39 @@ local function nearest(value, candidates, dist)
   return best
 end
 
---- Snap a dragged float's top-left to the main console area's edges and to
--- the other floats', within cfg.floatSnapDistance. The two axes are decided
--- independently, so a drag can snap to one edge while staying free on the
--- other.
+--- The rectangle a float snaps its edges against: the main console area, held
+-- cfg.floatSnapInset clear of the chrome so a snapped float sits a few pixels
+-- off an edge rather than flush against it.
+--
+-- The LEFT edge is the exception and takes no inset of its own - mdw.mainArea()
+-- already starts it a dockGap past the sidebar, which is the clearance the
+-- other three are being given here.
 --
 -- The RIGHT edge stops short of the main console's scrollbar
--- (mainScrollBarWidth), so a float snapped there never covers it - the same
--- allowance a right-hand anchor keeps in mdw.floatPos.
+-- (mainScrollBarWidth) as well, so a float snapped there never covers it - the
+-- same allowance a right-hand anchor keeps in mdw.floatPos.
 --
--- Container edges are clamped into what a drag can actually reach
--- (clampToWindow keeps a float resizeHitWidth from the window, so its borders
--- stay grabbable): a target the drag would be pulled back off is worse than
--- no target at all.
+-- Every edge is clamped into what a drag can actually reach (clampToWindow
+-- keeps a float resizeHitWidth from the window, so its borders stay grabbable):
+-- a target the drag would be pulled back off is worse than no target at all.
+-- @return left, top, right, bottom - outer bounds; a box's own size is the
+--   caller's to subtract from the right and bottom.
+function mdw.floatSnapEdges()
+  local cfg = mdw.config
+  local winW, winH = getMainWindowSize()
+  local m = cfg.resizeHitWidth or 0
+  local inset = cfg.floatSnapInset or 0
+  local areaX, areaY, areaW, areaH = mdw.mainArea()
+  return math.max(areaX, m),
+    math.max(areaY + inset, cfg.headerHeight + cfg.separatorHeight),
+    math.min(areaX + areaW - cfg.mainScrollBarWidth - inset, winW - m),
+    math.min(areaY + areaH - inset, winH - m)
+end
+
+--- Snap a dragged float's top-left to the main console area's edges
+-- (mdw.floatSnapEdges) and to the other floats', within cfg.floatSnapDistance.
+-- The two axes are decided independently, so a drag can snap to one edge while
+-- staying free on the other.
 --
 -- Both alignments are offered for every neighbour - edges FLUSH (left to left,
 -- right to right, so two floats line up in a column) and edges TOUCHING (right
@@ -925,13 +945,9 @@ function mdw.snapFloat(dragged, x, y, w, h)
   w = w or dragged.container:get_width()
   h = h or dragged.container:get_height()
 
-  local winW = (getMainWindowSize())
-  local m = cfg.resizeHitWidth or 0
-  local areaX, areaY, areaW, areaH = mdw.mainArea()
-  local left = math.max(areaX, m)
-  local right = math.min(areaX + areaW - cfg.mainScrollBarWidth, winW - m)
+  local left, top, right, bottom = mdw.floatSnapEdges()
   local xs = { left, right - w }
-  local ys = { areaY, areaY + areaH - h }
+  local ys = { top, bottom - h }
 
   for _, o in ipairs(snapNeighbours(dragged)) do
     local ox, oy = o.container:get_x(), o.container:get_y()
@@ -947,6 +963,70 @@ function mdw.snapFloat(dragged, x, y, w, h)
   end
 
   return nearest(x, xs, dist) or x, nearest(y, ys, dist) or y
+end
+
+---------------------------------------------------------------------------
+-- EDGE ATTACHMENT
+-- A float sitting on an edge of the snap rectangle is ATTACHED to it: it
+-- travels with that edge when the chrome moves, and its resize borders say so.
+---------------------------------------------------------------------------
+
+-- One pixel of tolerance, not zero: clampToWindow can shave a snapped
+-- position, and a float a pixel off an edge is one the player put there.
+local ANCHOR_TOLERANCE = 1
+
+--- Record which edges of mdw.floatSnapEdges() a floating group is sitting on.
+--
+-- DERIVED from the position, never a flag set by the drag that produced it: a
+-- float restored from the layout file at an edge is attached for exactly the
+-- reason a just-dragged one is, so nothing has to persist the attachment or
+-- remember to invalidate it when the float is moved by some other path.
+function mdw.updateFloatAnchors(widget)
+  if not widget or not widget.container then return end
+  -- Docked is attached to a dock, not to an edge; leaving the last float's
+  -- anchors on it would have them read back stale if it floats again.
+  if widget.docked then
+    widget.anchorX, widget.anchorY = nil, nil
+    return
+  end
+  local left, top, right, bottom = mdw.floatSnapEdges()
+  local x, y = widget.container:get_x(), widget.container:get_y()
+  local w, h = widget.container:get_width(), widget.container:get_height()
+  local function at(a, b) return math.abs(a - b) <= ANCHOR_TOLERANCE end
+  widget.anchorX = (at(x, left) and "left") or (at(x + w, right) and "right") or nil
+  widget.anchorY = (at(y, top) and "top") or (at(y + h, bottom) and "bottom") or nil
+end
+
+--- Carry every attached float back onto its edge. The chrome moves under
+-- floats - a sidebar dragged wider, a sidebar or the prompt bar toggled, the
+-- window resized, a chrome bar appearing - and a float lined up with an edge
+-- is one the player wants THERE, not at the pixel the edge used to be at.
+--
+-- A HIDDEN attached float is moved too, but not re-laid: resizeStackContent
+-- shows the active member, which would reopen a closed panel. showStack lays
+-- it out when it comes back.
+function mdw.repositionAnchoredFloats()
+  if mdw._restoringLayout then return end
+  local left, top, right, bottom = mdw.floatSnapEdges()
+  for _, w in pairs(mdw.widgets) do
+    if w.isStack and not w.docked and w.container and (w.anchorX or w.anchorY) then
+      local bw, bh = w.container:get_width(), w.container:get_height()
+      local x = (w.anchorX == "left" and left)
+        or (w.anchorX == "right" and right - bw)
+        or w.container:get_x()
+      local y = (w.anchorY == "top" and top)
+        or (w.anchorY == "bottom" and bottom - bh)
+        or w.container:get_y()
+      x, y = mdw.clampToWindow(x, y, bw, bh)
+      if x ~= w.container:get_x() or y ~= w.container:get_y() then
+        w.container:move(x, y)
+        if w.visible ~= false then
+          if mdw.resizeStackContent then mdw.resizeStackContent(w) end
+          mdw.updateResizeBorders(w)
+        end
+      end
+    end
+  end
 end
 
 --- Clear all transient drag state (called when a drag ends or is cancelled).
@@ -1269,6 +1349,13 @@ function mdw.updateResizeBorders(widget)
   widget.resizeBottomLeft:resize(cs + bw, cs + bw)
   widget.resizeBottomRight:move(x + w - cs, y + h - cs)
   widget.resizeBottomRight:resize(cs + bw, cs + bw)
+
+  -- Attachment is a function of the position that was just applied, and every
+  -- path that moves a float ends here - the drag, the reveal, the layout
+  -- restore, a resize. Deriving it here is what keeps the flag from needing an
+  -- owner.
+  mdw.updateFloatAnchors(widget)
+  mdw.refreshResizeBorderStyles(widget)
 end
 
 function mdw.showResizeHandles(widget)
@@ -1440,6 +1527,8 @@ function mdw.togglePromptBar()
     if mdw.promptBarContainer then mdw.promptBarContainer:hide() end
     mdw.promptSeparator:hide()
   end
+  -- The bar is bottom chrome, so the area's bottom edge just moved with it.
+  mdw.repositionAnchoredFloats()
   mdw.applyZOrder()
   mdw.saveLayout()
 end
@@ -1550,6 +1639,12 @@ function mdw.toggleWidget(widgetName)
       else
         mdw.hideStack(stack)
       end
+    elseif not stack.docked and not stack.originalDock then
+      -- A hidden FLOAT comes back where it was closed: its box is its whole
+      -- placement, so there is nothing else for a reveal to restore. (The
+      -- centre rule below is for a group that remembers a DOCK - a floating
+      -- reveal is all a keyboard user can be given there.)
+      mdw.showStack(stack, widgetName)
     else
       -- Reveal a hidden group: bring it back floating in the centre.
       mdw.floatStackCentered(stack)

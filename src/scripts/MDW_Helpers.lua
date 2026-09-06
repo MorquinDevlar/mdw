@@ -135,22 +135,31 @@ function mdw.buildStyles()
   -- widget-facing side, so the wide hit area never paints a solid band. Edges
   -- carry one border line; corners carry the L of the two edges meeting there
   -- (subtle by default so the widget border reads as continuous, accent on hover).
+  --
+  -- Each set is built twice. The "Anchored" variant, in a lighter grey, is
+  -- what a float sitting on an edge of the main console area wears: that float
+  -- travels with the edge (mdw.repositionAnchoredFloats), which is invisible
+  -- until the chrome moves, so the border is where it is announced.
   local bw = cfg.resizeBorderWidth
-  for style, side in pairs({ resizeLeft = "right", resizeRight = "left",
-                             resizeTop = "bottom", resizeBottom = "top" }) do
-    mdw.styles[style] = string.format([[
-      QLabel { background-color: transparent; border-%s: %dpx solid %s; }
-      QLabel:hover { background-color: transparent; border-%s: %dpx solid %s; }
-    ]], side, bw, cssSplitter, side, bw, cssSplitterHover)
-  end
-  for corner, edges in pairs({ TL = { "top", "left" }, TR = { "top", "right" },
-                               BL = { "bottom", "left" }, BR = { "bottom", "right" } }) do
-    local borders = string.format("border-%s: %dpx solid %%s; border-%s: %dpx solid %%s;",
-      edges[1], bw, edges[2], bw)
-    mdw.styles["resizeCorner" .. corner] = string.format(
-      "QLabel { background-color: transparent; " .. borders .. " }\n"
-      .. "QLabel:hover { background-color: transparent; " .. borders .. " }",
-      cssSplitter, cssSplitter, cssSplitterHover, cssSplitterHover)
+  local cssAnchored = mdw.rgbToCss(mdw.lightenRgb(c.splitter, 45))
+  for _, variant in ipairs({ { "", cssSplitter }, { "Anchored", cssAnchored } }) do
+    local suffix, cssLine = variant[1], variant[2]
+    for style, side in pairs({ resizeLeft = "right", resizeRight = "left",
+                               resizeTop = "bottom", resizeBottom = "top" }) do
+      mdw.styles[style .. suffix] = string.format([[
+        QLabel { background-color: transparent; border-%s: %dpx solid %s; }
+        QLabel:hover { background-color: transparent; border-%s: %dpx solid %s; }
+      ]], side, bw, cssLine, side, bw, cssSplitterHover)
+    end
+    for corner, edges in pairs({ TL = { "top", "left" }, TR = { "top", "right" },
+                                 BL = { "bottom", "left" }, BR = { "bottom", "right" } }) do
+      local borders = string.format("border-%s: %dpx solid %%s; border-%s: %dpx solid %%s;",
+        edges[1], bw, edges[2], bw)
+      mdw.styles["resizeCorner" .. corner .. suffix] = string.format(
+        "QLabel { background-color: transparent; " .. borders .. " }\n"
+        .. "QLabel:hover { background-color: transparent; " .. borders .. " }",
+        cssLine, cssLine, cssSplitterHover, cssSplitterHover)
+    end
   end
 
   -- Thin-line drag handles: every splitter in the UI is a label WIDER than
@@ -1617,11 +1626,14 @@ function mdw.applyThemeStyles()
 
     -- Floating resize borders: full styles normally; accent-colored edges while
     -- previewing (corners keep their committed style, matching the old look).
+    -- Both branches leave the committed styles stale, so the attachment key is
+    -- cleared for refreshResizeBorderStyles to re-assert on the next move.
+    widget._borderStyleKey = nil
     for _, spec in ipairs(mdw.resizeBorders or {}) do
       local border = widget[spec.field]
       if border then
         if not preview then
-          border:setStyleSheet(mdw.styles[spec.style])
+          border:setStyleSheet(mdw.resizeBorderStyle(widget, spec))
         elseif spec.borderSide then
           border:setStyleSheet(string.format(
             [[QLabel { background-color: transparent; border-%s: %dpx solid %s; }]],
@@ -1792,6 +1804,29 @@ function mdw.widgetText(name)
     if tostring(lines[i]):match("^%s*$") then table.remove(lines, i) else break end
   end
   return lines
+end
+
+--- The stylesheet one resize border wears: the lighter "attached" set while
+-- the float is sitting on an edge of the main console area, the ordinary set
+-- otherwise.
+function mdw.resizeBorderStyle(widget, spec)
+  local attached = widget and not widget.docked and (widget.anchorX or widget.anchorY)
+  return mdw.styles[spec.style .. (attached and "Anchored" or "")]
+end
+
+--- Re-apply a float's resize-border stylesheets when its attachment changes.
+-- Guarded on an actual change: updateResizeBorders runs on every mouse move of
+-- a drag, and eight setStyleSheet calls per move is a stutter.
+function mdw.refreshResizeBorderStyles(widget)
+  if not widget or not widget.resizeLeft then return end
+  local key = widget.docked and "docked"
+    or ((widget.anchorX or "-") .. (widget.anchorY or "-"))
+  if widget._borderStyleKey == key then return end
+  widget._borderStyleKey = key
+  for _, spec in ipairs(mdw.resizeBorders or {}) do
+    local border = widget[spec.field]
+    if border then border:setStyleSheet(mdw.resizeBorderStyle(widget, spec)) end
+  end
 end
 
 --- Shared tail of every scripted placement change: re-lay both docks, persist

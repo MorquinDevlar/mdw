@@ -108,6 +108,12 @@ mdw.config = {
   -- flush to it - the main console area's own edges, and the edges of the
   -- other floats. 0 turns snapping off and hands dragging back to the pixel.
   floatSnapDistance = 8,
+  -- Clearance a float snapped to an edge keeps from it. The LEFT edge gets
+  -- this for free - mdw.mainArea() already starts the area a dockGap past the
+  -- sidebar - so the same figure on the top, right and bottom is what makes a
+  -- snapped float sit the same few pixels off every edge, instead of flush
+  -- under the header/top bars or against the main console's scrollbar.
+  floatSnapInset = 5,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators

@@ -614,6 +614,11 @@ function mdw.rebuildStacksFromLayout()
         if saved.activeMember and stack.tabsByName[saved.activeMember] then
           mdw.selectStackTab(stack, saved.activeMember)
         end
+        -- A group closed as a whole (its tab x, or the menu on a sole member)
+        -- is hidden on the GROUP, not on its members - applyPendingLayout
+        -- returns early for a member with a stackId - so nothing else in the
+        -- restore reads this and the panel came back open on the next load.
+        if saved.visible == false then mdw.hideStack(stack) end
         mdw.pendingLayouts[name] = nil
       end
     end
@@ -960,6 +965,15 @@ end
 function mdw.closeStackMember(stack, memberName)
   local member = mdw.widgets[memberName]
   if not stack or not member then return end
+  -- A SOLE member's close is its group's close - the same call the Widgets
+  -- menu makes for one. Detaching it instead destroys the group, and with it
+  -- the only record of where a floating panel was: the reveal then had nothing
+  -- to come back to and centred it.
+  if #(stack.members or {}) == 1 and stack.members[1] == memberName then
+    mdw.hideStack(stack)
+    mdw.saveLayout()
+    return
+  end
   local side = stack.docked
   -- Remember the group so a later scripted reveal (mdw.showWidget) can undo
   -- the close by putting the member back among its siblings. Transient, never
