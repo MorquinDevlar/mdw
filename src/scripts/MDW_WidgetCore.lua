@@ -394,6 +394,37 @@ local function bindSliderCallbacks(rec, labelName)
   end
 end
 
+--- Turn a Geyser.Gauge into a slider, for callers outside the widget rows.
+-- The header menus' slider rows go through here rather than reimplementing
+-- the drag: one gesture implementation, so a fix to the wheel or the
+-- mid-drag capture reaches both surfaces.
+--
+-- `rec` is the same record shape applyRowContent normalizes - value, max,
+-- step, text, onChange, onPreview - and the caller keeps it, so a later
+-- repaint updates the slider by writing the record and calling
+-- mdw.paintSlider rather than rebuilding anything.
+-- @param gauge Geyser.Gauge whose `text` label takes the pointer
+-- @param rec table the slider's record; el is set here
+function mdw.bindSlider(gauge, rec)
+  if not (gauge and gauge.text and rec) then return end
+  rec.el = gauge
+  local max = tonumber(rec.max) or 0
+  rec.max = (max > 0) and max or 100
+  rec.step = tonumber(rec.step) or mdw.config.rowSliderStep
+  rec.value = sliderClamp(rec.value, rec.max)
+  -- A menu destroyed mid-drag leaves these set on a record the next open
+  -- reuses; a stale `dragging` would swallow that open's first press.
+  rec.dragging, rec.dragWidth = nil, nil
+  gauge.text:setCursor(mudlet.cursor.PointingHand)
+  bindSliderCallbacks(rec, gauge.text.name)
+  sliderPaint(rec, rec.value)
+end
+
+--- Repaint a bound slider at `rec.value` without telling the game.
+function mdw.paintSlider(rec)
+  if rec and rec.el then sliderPaint(rec, sliderClamp(rec.value, rec.max)) end
+end
+
 local function createRowElement(widget, row)
   local cfg = mdw.config
   local name = "MDW_" .. widget.name .. "_Row_" .. tostring(row.id)
@@ -426,6 +457,19 @@ local function createRowElement(widget, row)
     mdw.trackElement(gauge.back)
     mdw.trackElement(gauge.front)
     mdw.trackElement(gauge.text)
+    -- A baseline stylesheet on the TEXT label before anything echoes into it.
+    -- Geyser.Label:new calls createLabel and nothing else, so the label has no
+    -- stylesheet at all until someone sets one - and getLabelStyleSheet then
+    -- answers nil, which getLabelFormat indexes and dies on. setFgColor below
+    -- is an echo (`self:echo(nil, color, nil)`), so it would be the first to
+    -- hit it. applyRowContent's own setStyleSheet replaces this when the row
+    -- declares colours of its own.
+    --
+    -- Set on the LABEL, not through the gauge: Geyser.Gauge:setStyleSheet
+    -- takes front and back too and hands them straight to setLabelStyleSheet,
+    -- which rejects a nil - so styling only the text through the gauge means
+    -- passing nils it will not take.
+    gauge.text:setStyleSheet("background-color: rgba(0,0,0,0%);")
     gauge:setAlignment("c")
     if row.fontSize then gauge:setFontSize(row.fontSize) end
     if row.fgColor then gauge:setFgColor(row.fgColor) end
@@ -936,12 +980,15 @@ end
 --
 -- Both alignments are offered for every neighbour - edges FLUSH (left to left,
 -- right to right, so two floats line up in a column) and edges TOUCHING (right
--- to left, bottom to top, so they sit side by side or stacked).
+-- to left, bottom to top, so they sit side by side or stacked). The touching
+-- pair keeps cfg.floatSnapGap between the two outer borders; the flush pair
+-- takes no gap, being the same edge on both floats.
 -- @return x, y
 function mdw.snapFloat(dragged, x, y, w, h)
   local cfg = mdw.config
   local dist = cfg.floatSnapDistance or 0
   if dist <= 0 or not dragged then return x, y end
+  local gap = cfg.floatSnapGap or 0
   w = w or dragged.container:get_width()
   h = h or dragged.container:get_height()
 
@@ -952,14 +999,14 @@ function mdw.snapFloat(dragged, x, y, w, h)
   for _, o in ipairs(snapNeighbours(dragged)) do
     local ox, oy = o.container:get_x(), o.container:get_y()
     local ow, oh = o.container:get_width(), o.container:get_height()
-    xs[#xs + 1] = ox            -- left edges flush
-    xs[#xs + 1] = ox + ow - w   -- right edges flush
-    xs[#xs + 1] = ox - w        -- sitting against its left side
-    xs[#xs + 1] = ox + ow       -- sitting against its right side
-    ys[#ys + 1] = oy            -- top edges flush
-    ys[#ys + 1] = oy + oh - h   -- bottom edges flush
-    ys[#ys + 1] = oy - h        -- stacked above it
-    ys[#ys + 1] = oy + oh       -- stacked below it
+    xs[#xs + 1] = ox              -- left edges flush
+    xs[#xs + 1] = ox + ow - w     -- right edges flush
+    xs[#xs + 1] = ox - w - gap    -- sitting against its left side
+    xs[#xs + 1] = ox + ow + gap   -- sitting against its right side
+    ys[#ys + 1] = oy              -- top edges flush
+    ys[#ys + 1] = oy + oh - h     -- bottom edges flush
+    ys[#ys + 1] = oy - h - gap    -- stacked above it
+    ys[#ys + 1] = oy + oh + gap   -- stacked below it
   end
 
   return nearest(x, xs, dist) or x, nearest(y, ys, dist) or y

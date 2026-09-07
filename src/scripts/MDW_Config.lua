@@ -114,6 +114,12 @@ mdw.config = {
   -- snapped float sit the same few pixels off every edge, instead of flush
   -- under the header/top bars or against the main console's scrollbar.
   floatSnapInset = 5,
+  -- Gap left between two floats snapped AGAINST each other (right-to-left,
+  -- bottom-to-top). Zero would put their 1px borders in adjacent pixel
+  -- columns, which reads as one thick smeared edge rather than two panels;
+  -- this is the clearance that keeps both borders visible. Flush alignments
+  -- (left-to-left, right-to-right) take no gap - they are the same edge.
+  floatSnapGap = 2,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators
@@ -477,6 +483,16 @@ mdw.barOrder = {}
 -- render while never being reaped. Survives teardown and script re-runs like
 -- onReady, since a package re-declares its rows from onReady on every build.
 mdw.gameMenu = mdw.gameMenu or {}
+
+-- Header dropdowns game packages contribute, in declaration order: a menu of
+-- the game's own next to Font Size and Theme, where a gear row would not do
+-- (a mode switch belongs in a menu of modes, not in MDW's admin dropdown).
+-- Declared through mdw.addHeaderMenu, on the same terms as the gear rows -
+-- owner-stamped, reaped by mdw.cleanupGame, re-declared from onReady on every
+-- build. Survives a script re-run for the same reason mdw.gameMenu does; the
+-- registry that DRIVES the menus (mdw.menuDefs) does not, so createHeaderMenus
+-- re-attaches these to it.
+mdw.gameHeaderMenus = mdw.gameHeaderMenus or {}
 
 -- Live prompt-bar gauges: id -> Geyser.Gauge. Rebuilt from
 -- mdw.promptGaugeDefs, which is deliberately NOT reset here - like

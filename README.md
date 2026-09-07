@@ -353,6 +353,83 @@ Your rows come first and MDW's two stay at the bottom, under a divider:
 Uninstall must not move down under the pointer of someone who has opened that
 menu a hundred times.
 
+### Your Own Menu in the Header Bar
+
+When the choices are a set rather than a single action - combat modes, map
+layers, channel filters - give them a dropdown of their own next to Font Size
+and Theme instead of stacking rows in the gear:
+
+```lua
+mdw.addHeaderMenu({
+  id = "combat",
+  title = "Combat",
+  items = function() return {
+    { label = "Auto-attack", checked = mdw.gameSettings.MyGame.auto,
+      keepOpen = true, onClick = function() toggleAuto() end },
+    { separator = true },
+    { label = "Reset counters", onClick = function() send("reset") end },
+  } end,
+})
+```
+
+Rows are the same shape as a context menu's: `{ label, onClick }` actions,
+`{ separator = true }` dividers, `checked` for a `[x]`/`[ ]` box, `keepOpen`
+to re-open the menu after the click so a toggled box redraws. `items` may be
+a **function** returning the array - it is re-evaluated on every open, so the
+menu can list what exists right now (your open channels, the current room's
+exits); `label` and `checked` may be getters for the same reason. `title` is
+the button's text and must be a plain string: the bar is laid out from its
+glyph width once, not re-measured per open, so keep it short.
+
+A row that declares `onCheck` as well as `onClick` has two targets: the
+checkbox runs `onCheck` (and always re-opens the menu, since the player is
+watching the box they ticked), the rest of the row runs `onClick`. That gives
+a list row whose box and whose text mean different things - a tick beside a
+title that plays - without listing the same items twice. A row with neither
+callback is inert: no pointer cursor, no hover highlight, since a caption that
+lights up under the pointer reads as a button that does nothing.
+
+A `type = "slider"` row is dragged rather than clicked. It takes the same
+fields as a widget slider row (see [Rows Inside a Widget](#rows-inside-a-widget-gauges-sliders-and-text)) -
+`value`, `max`, `step`, `text`, `front`, `back`, `fgColor`, `fontSize`,
+`textStyle`, `onChange`, `onPreview` - and goes through the same gesture code,
+so the drag behaves identically on both surfaces. It carries no label and no
+checkbox, and the menu stays open while the pointer is down. Declare it inside
+an `items` function with `value` read from your own state, so every open opens
+at what the game currently holds.
+
+A row can also be built from segments laid left to right with `parts`, each
+with its own hit zone - "Volume [====] [ ] Mute" is one row rather than three:
+
+```lua
+{ parts = {
+    { label = "Volume" },
+    { type = "slider", flex = true, value = vol, max = 100,
+      onChange = function(v) setVolume(v) end },
+    { label = "Mute", checked = muted, onCheck = function() toggleMute() end },
+  } }
+```
+
+Each part is a label (with optional `checked` and `onClick`/`onCheck`) or a
+slider, and takes the same fields it would as a whole row. One part may be
+`flex` to take whatever width the fixed ones leave; a flex segment never
+shrinks below 12 glyphs, so a slider in a crowded row stays something a
+pointer can aim at. A segment with no callback is inert, like a row with none.
+
+Re-declaring a menu that is currently OPEN repaints it in place: pass the same
+`id` to `mdw.addHeaderMenu` from your own data handler and a checkbox the
+server confirms a moment after the click catches up on screen, instead of
+sitting stale until the player closes and reopens the menu.
+
+Declared from `onReady` on every build, like your gear rows: a known `id`
+replaces its menu in place, the declaration is stamped with your package and
+reaped with it, and it survives an MDW update without your scripts re-running.
+`mdw.removeHeaderMenu(id)` withdraws one by hand.
+
+Your menus come after MDW's own, the mirror of the gear where your rows lead.
+Same reason both ways round: nothing whose position the player has learned
+moves when a package adds a menu.
+
 ### Context Menus for Your Widget Content
 
 For "click a thing, act on it" content (inventory items, quest rows), open a
@@ -401,6 +478,11 @@ A float the player DRAGS snaps when an edge comes within
 float's - left-to-left and right-to-right so panels line up, right-to-left and
 bottom-to-top so they sit side by side or stacked. Each axis is decided on its
 own; 0 turns it off.
+
+Two floats snapped AGAINST each other keep `cfg.floatSnapGap` (2) between the
+outer borders. Flush at zero, their 1px borders land in adjacent pixel columns
+and read as one thick smeared edge rather than two panels. The line-up
+alignments take no gap - left-to-left is the same edge on both floats.
 
 Against the area's own edges it snaps `cfg.floatSnapInset` (5) short rather
 than flush, so a snapped panel sits a few pixels off the top bar and the window
@@ -766,6 +848,7 @@ echoing anything themselves, so your package owns every word the player sees.
 | `mdw.widgetText(name)` | The widget's current text as plain lines, for reading it aloud or echoing it elsewhere |
 | `mdw.describeLayout()` | The whole layout as plain data: sidebars, prompt bar, theme, fonts, both docks' rows and occupants, floating groups, and hidden widgets with a reason (`closed`, `group_hidden`, `sidebar_hidden`) |
 | `mdw.addMenuItem(spec)` / `mdw.removeMenuItem(id)` | Rows your package contributes to the gear dropdown (`"ok"`, `"replaced"`, `"unknown_item"`, `"invalid"`). `mdw.menuItems()` lists them as `{ id, label, checked, owner }`, getters resolved |
+| `mdw.addHeaderMenu(spec)` / `mdw.removeHeaderMenu(id)` | A dropdown of your own in the header bar (`"ok"`, `"replaced"`, `"unknown_menu"`, `"invalid"`). `mdw.headerMenus()` lists them as `{ id, title, owner }` |
 | `mdw.resetLayout(opts)` | Delete the saved layout, restore `mdw.layoutDefaults`, and rebuild. `opts.keepGameSettings` (default true) preserves `mdw.gameSettings` |
 
 ```lua

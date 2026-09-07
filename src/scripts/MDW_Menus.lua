@@ -242,32 +242,46 @@ function mdw.layoutHeaderButtons()
   end
 end
 
+--- Create one menu's header button. Split out because a game package can
+-- declare a menu after the bar is already up (mdw.addHeaderMenu on a late
+-- join), and that button has to be built the same way this one is.
+local function createMenuButton(def)
+  local cfg = mdw.config
+  -- Geometry comes from layoutHeaderButtons (shared with live menu-font
+  -- changes), so create at a placeholder position.
+  local btn = mdw.trackElement(Geyser.Label:new({
+    name = def.buttonName,
+    x = 0, y = 0,
+    width = 10, height = cfg.headerHeight - cfg.separatorHeight,
+  }, mdw.headerPane))
+  btn:setStyleSheet(mdw.styles.headerButton)
+  btn:setFontSize(cfg.headerMenuFontSize)
+  btn:decho("<" .. cfg.headerTextColor .. ">" .. def.buttonText)
+  btn:setCursor(mudlet.cursor.PointingHand)
+
+  local key = def.key
+  setLabelClickCallback(def.buttonName, function()
+    mdw.toggleMenu(key)
+  end)
+
+  mdw[def.button] = btn
+  return btn
+end
+
 --- Create the header menu buttons and the prebuilt dropdowns.
 function mdw.createHeaderMenus()
   local cfg = mdw.config
   local height = cfg.headerHeight - cfg.separatorHeight
   local gearSize = height
 
+  -- Consumer menus first: their declarations outlive the registry they hang
+  -- off (see mdw.syncGameHeaderMenus), and this is the one place that runs
+  -- after both this file and every onReady callback.
+  mdw.syncGameHeaderMenus()
+
   for _, def in ipairs(mdw.menuDefs) do
     if def.buttonText then
-      -- Geometry comes from layoutHeaderButtons below (shared with live
-      -- menu-font changes), so create at a placeholder position.
-      local btn = mdw.trackElement(Geyser.Label:new({
-        name = def.buttonName,
-        x = 0, y = 0,
-        width = 10, height = height,
-      }, mdw.headerPane))
-      btn:setStyleSheet(mdw.styles.headerButton)
-      btn:setFontSize(cfg.headerMenuFontSize)
-      btn:decho("<" .. cfg.headerTextColor .. ">" .. def.buttonText)
-      btn:setCursor(mudlet.cursor.PointingHand)
-
-      local key = def.key
-      setLabelClickCallback(def.buttonName, function()
-        mdw.toggleMenu(key)
-      end)
-
-      mdw[def.button] = btn
+      createMenuButton(def)
     end
   end
   mdw.layoutHeaderButtons()
@@ -1099,6 +1113,585 @@ function mdw.uninstall()
 
   -- Fires sysUninstallPackage -> mdw.onUninstall -> teardown
   uninstallPackage(mdw.packageName)
+end
+
+---------------------------------------------------------------------------
+-- GAME HEADER MENUS
+-- A consumer's own dropdowns, sitting in the header beside MDW's own text
+-- menus. Same bargain as the gear rows (mdw.addMenuItem): declared from
+-- onReady, a known id replaces in place, the declaration carries an owner
+-- stamp and is reaped with the package. What a menu adds over a gear row is
+-- a place to put a SET of choices - a game's modes, its map layers, its
+-- channel filters - which do not belong inside MDW's admin dropdown.
+--
+-- Game menus come after MDW's own buttons, the mirror of the gear (where the
+-- game's rows LEAD): appending is the order in which nothing the player
+-- already knows the position of moves when a package adds a menu.
+---------------------------------------------------------------------------
+
+--- Free one game menu's dropdown labels. Its rows are built per open (so a
+-- getter row shows live state), so they are untracked and freed here rather
+-- than by destroyAllElements.
+local function destroyGameMenuElements(def)
+  for _, label in ipairs(mdw[def.labels] or {}) do
+    pcall(function() label:hide() end)
+    pcall(function() if label.name then deleteLabel(label.name) end end)
+  end
+  mdw[def.labels] = {}
+  local bg = mdw[def.bg]
+  if bg then
+    pcall(function() bg:hide() end)
+    pcall(function() if bg.name then deleteLabel(bg.name) end end)
+    mdw[def.bg] = nil
+  end
+end
+
+--- The declared rows, as an array. A FUNCTION is re-evaluated here - that is,
+-- on every open - which is what lets a menu list what exists right now.
+local function gameMenuRows(def)
+  local items = def.items
+  if type(items) == "function" then
+    local ok, resolved = pcall(items)
+    items = ok and resolved or nil
+  end
+  return type(items) == "table" and items or {}
+end
+
+-- A flex segment never shrinks below this, so a slider in a crowded row is
+-- still something a pointer can aim at.
+local MIN_FLEX_GLYPHS = 12
+
+--- How many glyphs a fixed part occupies, checkbox included.
+local function partGlyphs(part)
+  if part.type == "slider" then return MIN_FLEX_GLYPHS end
+  local label = part.label or ""
+  if type(label) == "function" then
+    local ok, resolved = pcall(label)
+    label = (ok and resolved) or ""
+  end
+  -- "[x] " is four glyphs the label does not carry; the trailing pad keeps
+  -- neighbouring segments from touching.
+  return #tostring(label) + (part.checked ~= nil and 4 or 0) + 2
+end
+
+-- Forward-declared: a checkbox row's click closure refreshes the open card,
+-- and both helpers that do it need rebuildGameMenu, which is right below.
+local repaintOpenGameMenu, refreshOpenGameMenu
+
+--- Build (or rebuild) one game menu's dropdown, anchored under its button.
+local function rebuildGameMenu(def)
+  destroyGameMenuElements(def)
+
+  local cfg = mdw.config
+  local sepAdvance = cfg.menuPadding
+  local charWidth = mdw.charWidthEstimate(cfg.headerMenuFontSize)
+
+  -- Resolve every row once: the getters must not be read again during
+  -- rendering, or a label and its checkbox could disagree.
+  local rows = {}
+  local maxLen = 0
+  local menuHeight = cfg.menuPadding * 2
+  for _, entry in ipairs(gameMenuRows(def)) do
+    if entry.separator then
+      rows[#rows + 1] = { separator = true }
+      menuHeight = menuHeight + sepAdvance
+    elseif entry.type == "slider" then
+      -- A slider is the one row the player DRAGS rather than clicks, so it
+      -- carries the gauge's fields instead of a label and takes no checkbox.
+      rows[#rows + 1] = { slider = entry }
+      menuHeight = menuHeight + cfg.menuItemHeight
+    elseif entry.parts then
+      -- A row built from segments laid left to right - "Volume [====] [ ] Mute"
+      -- is one row, not three. Each segment is text, a slider, or a checkbox
+      -- with its own hit zone; one may be `flex` and takes whatever width the
+      -- fixed ones leave.
+      local fixed = 0
+      for _, part in ipairs(entry.parts) do
+        if not part.flex then fixed = fixed + partGlyphs(part) end
+      end
+      rows[#rows + 1] = { parts = entry.parts, entry = entry }
+      maxLen = math.max(maxLen, fixed + MIN_FLEX_GLYPHS)
+      menuHeight = menuHeight + cfg.menuItemHeight
+    else
+      local text, checked = menuItemState(entry)
+      rows[#rows + 1] = { text = text, checked = checked, entry = entry,
+        onClick = entry.onClick, keepOpen = entry.keepOpen,
+        onCheck = entry.onCheck }
+      -- A checkbox is four glyphs the label itself does not carry.
+      maxLen = math.max(maxLen, #text + (checked ~= nil and 4 or 0))
+      menuHeight = menuHeight + cfg.menuItemHeight
+    end
+  end
+  -- An items function that currently yields nothing still draws a card: a
+  -- sliver of border reads as a broken menu, an empty one as an empty menu.
+  menuHeight = math.max(menuHeight, cfg.menuItemHeight + cfg.menuPadding * 2)
+
+  local menuWidth = math.max(cfg.menuWidth,
+    cfg.menuPaddingLeft * 2 + maxLen * charWidth)
+  local menuY = cfg.headerHeight - cfg.menuOverlap
+  -- Under its own button, but never off the right edge: game menus sit at the
+  -- end of the bar, so a wide one on a narrow window is the normal case here
+  -- (MDW's own dropdowns hang off buttons too far left for that to happen).
+  local menuX = (mdw.headerButtonX or {})[def.button] or cfg.menuPaddingLeft
+  local winW = getMainWindowSize()
+  menuX = math.max(0, math.min(menuX, winW - menuWidth - cfg.menuPaddingLeft))
+
+  mdw[def.labels] = {}
+  local labels = mdw[def.labels]
+  -- Refreshers carry the index of the ROW they belong to - a parts row
+  -- contributes one per segment - so refreshOpenGameMenu can hand each back
+  -- its own declaration from a fresh items() reading. Rows are 1:1 with
+  -- entries, separators and sliders included, which is what makes the index
+  -- meaningful.
+  def.refreshers = {}
+  def.entryCount = #rows
+  local refreshers = def.refreshers
+
+  local bg = Geyser.Label:new({
+    name = def.bgName,
+    x = menuX, y = menuY, width = menuWidth, height = menuHeight,
+  })
+  bg:setStyleSheet(mdw.styles.menuBackground)
+  mdw[def.bg] = bg
+
+  local yPos = menuY + cfg.menuPadding
+  for i, row in ipairs(rows) do
+    -- Stable element names (index, not row id): deleteLabel frees the Qt
+    -- widget but Geyser keeps a registry entry per name, so names minted per
+    -- rebuild would grow that registry for the whole session.
+    local name = def.itemPrefix .. i
+    if row.separator then
+      local sep = Geyser.Label:new({
+        name = name,
+        x = menuX + cfg.menuPaddingLeft, y = yPos + math.floor(sepAdvance / 2),
+        width = menuWidth - cfg.menuPaddingLeft * 2, height = 1,
+      })
+      sep:setStyleSheet(mdw.styles.separatorLine)
+      labels[#labels + 1] = sep
+      yPos = yPos + sepAdvance
+    elseif row.parts then
+      -- Segments left to right across one row's strip. Each gets its own
+      -- element, so each carries its own click target - which is the whole
+      -- point: a checkbox beside a slider beside a word.
+      local fixed = 0
+      for _, part in ipairs(row.parts) do
+        if not part.flex then fixed = fixed + partGlyphs(part) end
+      end
+      local flexWidth = math.max(MIN_FLEX_GLYPHS * charWidth,
+        menuWidth - cfg.menuPaddingLeft * 2 - fixed * charWidth)
+      local px = menuX + cfg.menuPaddingLeft
+      for pi, part in ipairs(row.parts) do
+        local partName = name .. "_P" .. pi
+        local width = part.flex and flexWidth or (partGlyphs(part) * charWidth)
+        if part.type == "slider" then
+          local barH = math.min(cfg.rowGaugeHeight, cfg.menuItemHeight)
+          local gauge = Geyser.Gauge:new({
+            name = partName, x = px,
+            y = yPos + math.floor((cfg.menuItemHeight - barH) / 2),
+            width = width, height = barH, strict = true,
+          })
+          gauge.text:setStyleSheet(part.textStyle
+            or "background-color: rgba(0,0,0,0%);")
+          if part.front then
+            gauge:setStyleSheet(part.front, part.back, part.textStyle)
+          end
+          gauge:setAlignment("c")
+          gauge:setFontSize(part.fontSize or cfg.headerMenuFontSize)
+          if part.fgColor then gauge:setFgColor(part.fgColor) end
+          labels[#labels + 1] = gauge.back
+          labels[#labels + 1] = gauge.front
+          labels[#labels + 1] = gauge.text
+          mdw.bindSlider(gauge, part)
+        else
+          local seg = Geyser.Label:new({
+            name = partName, x = px, y = yPos,
+            width = width, height = cfg.menuItemHeight,
+          })
+          seg:setStyleSheet(mdw.styles.menuItem)
+          seg:setFontSize(cfg.headerMenuFontSize)
+          local act = part.onCheck or part.onClick
+          local segPart = part
+          local function renderPart(highlighted)
+            local label, checked = menuItemState(segPart)
+            if checked == nil then
+              seg:decho("<" .. (highlighted and cfg.menuHighlightColor
+                or cfg.menuTextColor) .. ">" .. label)
+            else
+              mdw.updateMenuItemText(seg, label, checked, highlighted)
+            end
+          end
+          renderPart(false)
+          refreshers[#refreshers + 1] = { index = i, fn = function(replacement)
+            if replacement and replacement.parts then
+              segPart = replacement.parts[pi] or segPart
+            end
+            renderPart(false)
+          end }
+          -- Only an ACTING segment is a target: a bare word takes no cursor
+          -- and no hover, or the row reads as several buttons.
+          if act then
+            seg:setCursor(mudlet.cursor.PointingHand)
+            setLabelClickCallback(partName, function()
+              act()
+              refreshOpenGameMenu(def)
+            end)
+            setLabelOnEnter(partName, function() renderPart(true) end)
+            setLabelOnLeave(partName, function() renderPart(false) end)
+          end
+          labels[#labels + 1] = seg
+        end
+        px = px + width
+      end
+      yPos = yPos + cfg.menuItemHeight
+    elseif row.slider then
+      -- Centred in an ordinary row's strip, so a menu of clicks and one drag
+      -- keeps even spacing. Inset by menuPaddingLeft on both sides: a bar
+      -- running edge to edge reads as the card's own border.
+      local spec = row.slider
+      local barH = math.min(cfg.rowGaugeHeight, cfg.menuItemHeight)
+      local gauge = Geyser.Gauge:new({
+        name = name, x = menuX + cfg.menuPaddingLeft,
+        y = yPos + math.floor((cfg.menuItemHeight - barH) / 2),
+        width = menuWidth - cfg.menuPaddingLeft * 2, height = barH,
+        strict = true,
+      })
+      -- STYLESHEET FIRST, and always one for the text label. Geyser.Label:new
+      -- calls createLabel and nothing else, so a fresh label has no stylesheet
+      -- at all - and getLabelStyleSheet then answers nil, which getLabelFormat
+      -- indexes and dies on. Every call below this line ECHOES into that label
+      -- (setFgColor is `self:echo(nil, color, nil)`, and setValue paints the
+      -- text), so styling afterwards is styling a label already crashed.
+      gauge.text:setStyleSheet(spec.textStyle or "background-color: rgba(0,0,0,0%);")
+      -- Front and back only when the declaration brought a front: Geyser
+      -- defaults the back to it, but hands either straight to
+      -- setLabelStyleSheet, which rejects a nil.
+      if spec.front then gauge:setStyleSheet(spec.front, spec.back, spec.textStyle) end
+      gauge:setAlignment("c")
+      gauge:setFontSize(spec.fontSize or cfg.headerMenuFontSize)
+      if spec.fgColor then gauge:setFgColor(spec.fgColor) end
+      -- The three real labels, not the container: a Geyser.Gauge is not
+      -- itself a Qt object, and destroyGameMenuElements deletes by label.
+      labels[#labels + 1] = gauge.back
+      labels[#labels + 1] = gauge.front
+      labels[#labels + 1] = gauge.text
+      -- One slider implementation for widget rows and menus alike. The record
+      -- is the declaration's own table, so the value the drag commits is
+      -- there for the next open to read back.
+      mdw.bindSlider(gauge, spec)
+      yPos = yPos + cfg.menuItemHeight
+    else
+      local item = Geyser.Label:new({
+        name = name,
+        x = menuX, y = yPos, width = menuWidth, height = cfg.menuItemHeight,
+      })
+      item:setStyleSheet(mdw.styles.menuItem)
+      item:setFontSize(cfg.headerMenuFontSize)
+      local text, checked = row.text, row.checked
+      local entry = row.entry
+      -- A row that DOES nothing takes no cursor and no hover below: a caption
+      -- or a hint that lights up under the pointer reads as a button that is
+      -- broken. Inferred from the declaration rather than flagged, so a row
+      -- cannot claim to be one thing and behave as the other.
+      local acts = (row.onClick ~= nil) or (row.onCheck ~= nil)
+      if acts then item:setCursor(mudlet.cursor.PointingHand) end
+      local function render(highlighted)
+        if checked == nil then
+          item:decho("<" .. (highlighted and cfg.menuHighlightColor or cfg.menuTextColor)
+            .. ">" .. text)
+        else
+          mdw.updateMenuItemText(item, text, checked, highlighted)
+        end
+      end
+      render(false)
+      -- Re-read this row's own getters and re-echo, touching nothing else.
+      -- This is what a toggle needs: flipping one box is not a reason to tear
+      -- the card down and build it again, and a rebuild driven from a row's
+      -- own click deletes the label Mudlet is dispatching that click on.
+      refreshers[#refreshers + 1] = { index = i, fn = function(replacement)
+        if replacement then entry = replacement end
+        text, checked = menuItemState(entry)
+        render(false)
+      end }
+      local onClick, keepOpen = row.onClick, row.keepOpen
+      local key = def.key
+      setLabelClickCallback(name, function()
+        -- A keepOpen row STAYS put and repaints in place. It used to hide and
+        -- re-open, which rebuilt the card - deleting, from inside this very
+        -- callback, the label Qt is dispatching on. See repaintOpenGameMenu.
+        if keepOpen then
+          if onClick then onClick() end
+          refreshOpenGameMenu(def)
+          return
+        end
+        -- Everything else hides before acting: the action may open another
+        -- menu or repaint the widget it came from.
+        mdw.hideMenu(key)
+        if onClick then onClick() end
+      end)
+      -- Hover only where a click does something, for the same reason as the
+      -- cursor above.
+      if acts then
+        setLabelOnEnter(name, function() render(true) end)
+        setLabelOnLeave(name, function() render(false) end)
+      end
+      labels[#labels + 1] = item
+      -- A row with `onCheck` has TWO targets: the box does one thing, the
+      -- rest of the row another - a web list row's checkbox and its title.
+      -- Drawn as one label still (updateMenuItemText composes "[x] " and the
+      -- text together, so the look is unchanged); this is a transparent hit
+      -- zone laid over the box, appended AFTER the item so showMenu and
+      -- applyZOrder - both of which walk this array in order - raise it on
+      -- top. menuPaddingLeft is the label's own padding, then the four
+      -- glyphs of "[x] ".
+      if row.onCheck then
+        local boxName = name .. "_Box"
+        local box = Geyser.Label:new({
+          name = boxName, x = menuX, y = yPos,
+          width = cfg.menuPaddingLeft + 4 * charWidth, height = cfg.menuItemHeight,
+        })
+        box:setStyleSheet("background-color: rgba(0,0,0,0%);")
+        box:setCursor(mudlet.cursor.PointingHand)
+        local onCheck = row.onCheck
+        setLabelClickCallback(boxName, function()
+          -- The menu stays put and repaints in place: a tick is not
+          -- navigation and the pointer is still on the card.
+          --
+          -- A row whose state the GAME confirms (a write, then a push) will
+          -- still repaint stale here - the answer has not arrived yet. That
+          -- is what the re-declaration repaint above is for: the consumer's
+          -- own data handler re-declares, and the box catches up then.
+          onCheck()
+          refreshOpenGameMenu(def)
+        end)
+        -- The hover belongs to the ROW: a pointer over the box is still over
+        -- the row, and highlighting only half of it would read as two rows.
+        setLabelOnEnter(boxName, function() render(true) end)
+        setLabelOnLeave(boxName, function() render(false) end)
+        labels[#labels + 1] = box
+      end
+      yPos = yPos + cfg.menuItemHeight
+    end
+  end
+end
+
+--- Repaint an OPEN game menu where it stands. rebuildGameMenu leaves its
+-- fresh labels hidden, so an open menu has to show and re-raise them the way
+-- showMenu does - without hideMenu/showMenu's close-and-open, which would
+-- flicker the card under the pointer that is still on it.
+--
+-- DEFERRED BY A TICK, and that is not a nicety. The rebuild deletes every
+-- label and recreates them under the same names, and its usual caller is a
+-- click on one of those labels - so run inline it deletes the widget Qt is
+-- still dispatching. The recreate then leaves a Geyser object whose label
+-- does not exist, and the first echo into it dies in getLabelFormat, whose
+-- getLabelStyleSheet answers nil for exactly that ("label does not exist").
+-- Same rule as re-entering Mudlet's installer from inside its own event.
+--- Refresh an OPEN game menu's rows IN PLACE - no label is created or
+-- destroyed, so this is safe from inside a row's own click callback, which a
+-- rebuild is not (Mudlet frees a label with deleteLater(), so tearing down the
+-- label being clicked leaves Lua holding a name that no longer resolves).
+--
+-- Falls back to the deferred rebuild only when the SHAPE changed - a row
+-- appeared or went - because then the labels no longer match the declaration.
+-- The ordinary case, a checkbox the game just confirmed, never gets there.
+function refreshOpenGameMenu(def)
+  if not (def and mdw.menus[def.key] and def.refreshers) then return end
+  local entries = gameMenuRows(def)
+  if #entries ~= def.entryCount then return repaintOpenGameMenu(def) end
+  for _, refresher in ipairs(def.refreshers) do
+    refresher.fn(entries[refresher.index])
+  end
+end
+
+function repaintOpenGameMenu(def)
+  if not (def and mdw.menus[def.key] and def.rebuild) then return end
+  tempTimer(0, function()
+    -- Re-checked on the far side: a tick is long enough for the menu to have
+    -- been closed, or for MDW to have been torn down under it.
+    if not (mdw.menus[def.key] and def.rebuild) then return end
+    def.rebuild()
+    for _, label in ipairs(mdw[def.labels] or {}) do label:show() end
+    mdw.applyZOrder()
+  end)
+end
+
+--- Attach one declaration to the menu registry, so every generic operation
+-- (toggle exclusivity, click-away, z-order, theme restyle, teardown) covers
+-- it. The rebuild/destroy closures are (re)minted here rather than stored on
+-- the declaration, so a declaration that survived an MDW update is rendered
+-- by the NEW build's code, not by closures from the old one.
+local function registerGameMenu(def)
+  def.rebuild = function() rebuildGameMenu(def) end
+  def.destroy = function()
+    destroyGameMenuElements(def)
+    -- The button is a tracked element, so teardown's destroyAllElements frees
+    -- it; drop the reference with the labels rather than leaving a dead one
+    -- for the next build's restyle to find.
+    mdw[def.button] = nil
+  end
+  -- Only DEFAULT the open flag: a re-attach after an MDW update must not
+  -- claim a menu is closed while its labels are still on screen.
+  if mdw.menus[def.key] == nil then mdw.menus[def.key] = false end
+  defsByKey[def.key] = def
+  mdw.menuDefs[#mdw.menuDefs + 1] = def
+end
+
+--- Re-attach surviving declarations to the registry that drives them.
+-- mdw.gameHeaderMenus outlives a script re-run (like mdw.onReady); mdw.menuDefs
+-- does not - it is a literal, rebuilt with MDW's own entries every time this
+-- file loads. Without this, an MDW update would leave a consumer's menus
+-- declared but driven by nothing. Idempotent, and called from
+-- createHeaderMenus, which runs after both this file and every onReady.
+function mdw.syncGameHeaderMenus()
+  for _, def in ipairs(mdw.gameHeaderMenus) do
+    if defsByKey[def.key] ~= def then registerGameMenu(def) end
+  end
+end
+
+--- Add (or replace) one game-package dropdown in the header bar.
+--
+-- The set-semantics half of the feature: these two functions and cleanupGame's
+-- owner reap are the whole of what writes mdw.gameHeaderMenus.
+--
+-- `items` is an array of { label, onClick } rows and { separator = true }
+-- dividers, or a FUNCTION returning one - re-evaluated on every open, so a
+-- menu can list what currently exists. A row's `label` and `checked` may each
+-- be a getter for the same reason; `checked` nil draws no box, false an empty
+-- one, and a `keepOpen` row re-opens the menu after its click so a toggled
+-- box redraws. A row that also declares `onCheck` splits in two: the CHECKBOX
+-- runs onCheck (and always re-opens, since the player is watching the box
+-- they ticked) while the rest of the row runs onClick - a list row whose box
+-- and whose text mean different things, the way a web one does.
+--
+-- A row with `type = "slider"` is DRAGGED rather than clicked: it takes the
+-- widget slider row's fields (value, max, step, text, front, back, fgColor,
+-- onChange, onPreview) and goes through the same mdw.bindSlider, so the
+-- gesture behaves identically on both surfaces. It carries no label or
+-- checkbox, and the menu stays open while the pointer is down - the drag is
+-- on the gauge, not on the row's click callback. Declare it inside an `items`
+-- FUNCTION and set `value` from the game's own state, so each open opens at
+-- what the game currently holds.
+--
+-- A row may instead carry `parts`: segments laid left to right, each a label,
+-- a checkbox or a slider with its own hit zone, one of them `flex` to take
+-- the width the others leave.
+--
+-- `title` is the button's text and must be a plain string: the bar is laid
+-- out from its glyph width, not re-measured per open.
+--
+-- Re-adding a known id updates that menu in place rather than appending, so a
+-- package that re-declares from onReady on every build never duplicates or
+-- reorders its menus.
+--
+-- @param spec table { id, title, items }
+-- @return ok, code - "ok", "replaced", or "invalid"
+function mdw.addHeaderMenu(spec)
+  if type(spec) ~= "table" then return false, "invalid" end
+  local id = tostring(spec.id or "")
+  local title = spec.title
+  if id == "" or type(title) ~= "string" or title == "" then return false, "invalid" end
+  if spec.items ~= nil and type(spec.items) ~= "table" and type(spec.items) ~= "function" then
+    return false, "invalid"
+  end
+  local items = spec.items or {}
+
+  for _, def in ipairs(mdw.gameHeaderMenus) do
+    if def.id == id then
+      -- Update the SAME table: it is the registry entry too, and its element
+      -- names (hence the Geyser registry) are keyed off the id, not the title.
+      def.items = items
+      -- Keep the stamp when re-declared lazily (outside onReady, where there
+      -- is no current owner) - a menu does not lose its package by being
+      -- refreshed from a GMCP handler.
+      def.owner = mdw._currentOwner or def.owner
+      if def.buttonText ~= title then
+        def.buttonText = title
+        def.title = title
+        local btn = mdw[def.button]
+        if btn then
+          btn:decho("<" .. mdw.config.headerTextColor .. ">" .. title)
+          mdw.layoutHeaderButtons()
+        end
+      end
+      -- Re-declaring while the menu is OPEN repaints it. `items` is otherwise
+      -- read on open only, so a menu whose rows track live data - a checkbox
+      -- the game confirms, a track that started playing - would sit stale in
+      -- front of the player until they closed and reopened it. A consumer
+      -- already re-declares from its own data handler (that is how the button
+      -- text follows state), so this is the repaint it was asking for.
+      refreshOpenGameMenu(def)
+      return true, "replaced"
+    end
+  end
+
+  local def = {
+    id = id,
+    title = title,
+    items = items,
+    -- Stamped like every other creation inside a ready callback, so
+    -- cleanupGame reaps the menu with the package that declared it. Nil
+    -- outside onReady, by the same design as the other lazy creations.
+    owner = mdw._currentOwner,
+    -- Registry fields. The key is prefixed so a game id can never collide
+    -- with one of MDW's own menus, and every element name is derived from
+    -- the id so a re-declared menu reuses its names.
+    key = "gameMenu_" .. id,
+    bg = "_gameMenuBg_" .. id,
+    labels = "_gameMenuLabels_" .. id,
+    button = "_gameMenuButton_" .. id,
+    buttonName = "MDW_GameMenu_" .. id .. "_Button",
+    bgName = "MDW_GameMenu_" .. id .. "_Bg",
+    itemPrefix = "MDW_GameMenu_" .. id .. "_Item",
+    buttonText = title,
+  }
+  mdw.gameHeaderMenus[#mdw.gameHeaderMenus + 1] = def
+  registerGameMenu(def)
+  -- A late join (a package installed mid-session, or re-asserted on update)
+  -- declares its menu after the bar was built, so build the button now;
+  -- during setup there is no header yet and createHeaderMenus does it.
+  if mdw.isSetUp and mdw.headerPane then
+    createMenuButton(def)
+    mdw.layoutHeaderButtons()
+  end
+  return true, "ok"
+end
+
+--- Withdraw one game dropdown: close it, free its elements and its button,
+-- and detach it from the registry.
+-- @return ok, code - "ok" or "unknown_menu"
+function mdw.removeHeaderMenu(id)
+  id = tostring(id or "")
+  for i, def in ipairs(mdw.gameHeaderMenus) do
+    if def.id == id then
+      if mdw.menus[def.key] then mdw.hideMenu(def.key) end
+      destroyGameMenuElements(def)
+      if mdw[def.button] then
+        mdw.deleteElement(mdw[def.button])
+        mdw[def.button] = nil
+      end
+      mdw.menus[def.key] = nil
+      defsByKey[def.key] = nil
+      for j, d in ipairs(mdw.menuDefs) do
+        if d == def then table.remove(mdw.menuDefs, j) break end
+      end
+      table.remove(mdw.gameHeaderMenus, i)
+      -- The buttons after it close the gap; their dropdowns re-anchor on
+      -- their own, being built per open.
+      if mdw.headerButtonX then mdw.layoutHeaderButtons() end
+      return true, "ok"
+    end
+  end
+  return false, "unknown_menu"
+end
+
+--- The declared menus in bar order, as { id, title, owner } - a copy, so a
+-- caller listing them cannot reorder the live table.
+function mdw.headerMenus()
+  local out = {}
+  for i, def in ipairs(mdw.gameHeaderMenus) do
+    out[i] = { id = def.id, title = def.title, owner = def.owner }
+  end
+  return out
 end
 
 ---------------------------------------------------------------------------

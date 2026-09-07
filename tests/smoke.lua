@@ -83,7 +83,18 @@ end
 -- z-order pass can be asserted (an element left out of it ends up under
 -- the content background, which is opaque).
 function Element:raise() H.raised[#H.raised + 1] = self.name end
-function Element:setStyleSheet(css) self._css = css end
+-- Mudlet's setLabelStyleSheet REFUSES a nil ("bad argument #2 type
+-- (stylesheet as string expected, got nil!)"), and Geyser.Gauge:setStyleSheet
+-- hands front and back straight to it - so styling only a gauge's text label
+-- through the gauge passes nils the real client throws on. Modelled here
+-- because this stub accepting them let exactly that ship twice.
+function Element:setStyleSheet(css)
+  if type(css) ~= "string" then
+    error("setLabelStyleSheet: bad argument #2 type (stylesheet as string expected, got "
+      .. type(css) .. "!)", 2)
+  end
+  self._css = css
+end
 function Element:setFontSize(s) self._fontSize = s end
 function Element:setFont(f) self._font = f end
 function Element:setAlignment(a) self._align = a end
@@ -93,7 +104,18 @@ function Element:setCursor() end
 function Element:setToolTip() end
 function Element:setBackgroundImage() end
 function Element:setClickCallback(cb) self._click = cb end
-function Element:echo(t) self._echoed[#self._echoed + 1] = t end
+-- Echoing into a DELETED label is what Mudlet dies on: getLabelStyleSheet
+-- answers nil for a label that does not exist ("label '%s' does not exist"),
+-- and getLabelFormat indexes that answer. Rebuilding a menu from inside one
+-- of its own labels' click callbacks did exactly this, and the stub let it
+-- through because a deleted Element still accepted echoes.
+function Element:echo(t)
+  if self._deleted then
+    error("attempt to index local 'stylesheet' (a nil value) - echo into deleted label "
+      .. tostring(self.name), 2)
+  end
+  self._echoed[#self._echoed + 1] = t
+end
 Element.cecho, Element.decho, Element.hecho = Element.echo, Element.echo, Element.echo
 function Element:clear()
   self._echoed = {}
@@ -194,7 +216,11 @@ function setBorderBottom(v) H.borders.bottom = v end
 function setBackgroundColor() end
 function setBgColor() end
 function setFgColor() end
-function deleteLabel(name) H.labels[name] = nil end
+function deleteLabel(name)
+  local el = H.labels[name]
+  if el then el._deleted = true end
+  H.labels[name] = nil
+end
 function enableClickthrough() end
 function enableTrigger() end
 function disableTrigger() end
@@ -576,6 +602,241 @@ mdw.toggleMenu("admin")
 check(H.labels["MDW_AdminMenu_Game1"] == nil and H.labels["MDW_AdminMenu_Sep"] == nil,
   "with no game rows the divider goes too")
 mdw.closeAllMenus()
+
+-- 2d. Header dropdowns contributed by game packages (mdw.addHeaderMenu). A
+-- late declaration builds its button on the spot; the dropdown is built per
+-- open, so its rows and their checkboxes read live state.
+local hmRan, hmOn = 0, false
+check(select(2, mdw.addHeaderMenu({ title = "No Id" })) == "invalid",
+  "a menu without an id is refused")
+check(select(2, mdw.addHeaderMenu({ id = "combat" })) == "invalid",
+  "and one without a title - the bar is laid out from its glyph width")
+local themeX = mdw.headerButtonX.themeButton
+check(select(2, mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { label = "Auto-attack", checked = function() return hmOn end,
+      keepOpen = true, onClick = function() hmOn = not hmOn end },
+    { separator = true },
+    { label = "Reset", onClick = function() hmRan = hmRan + 1 end },
+  }
+end })) == "ok", "menu added")
+check(H.labels["MDW_GameMenu_combat_Button"] ~= nil,
+  "a menu declared while the bar is up builds its button immediately")
+check(mdw.headerButtonX["_gameMenuButton_combat"] > themeX
+  and mdw.headerButtonX.themeButton == themeX,
+  "game menus follow MDW's own, which do not move for them")
+check(select(2, mdw.addHeaderMenu({ id = "combat", title = "Combat", items = {} })) == "replaced",
+  "re-declaring a known id replaces in place")
+check(#mdw.gameHeaderMenus == 1, "the replace left one menu, not two")
+local hmListed = mdw.headerMenus()
+check(#hmListed == 1 and hmListed[1].id == "combat" and hmListed[1].title == "Combat",
+  "headerMenus lists the declarations")
+hmListed[1] = nil
+check(#mdw.gameHeaderMenus == 1, "the listing is a copy, not the live table")
+
+-- Put the real items back and open it from its button, as a click would.
+mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { label = "Auto-attack", checked = function() return hmOn end,
+      keepOpen = true, onClick = function() hmOn = not hmOn end },
+    { separator = true },
+    { label = "Reset", onClick = function() hmRan = hmRan + 1 end },
+  }
+end })
+mdw.toggleMenu("theme")
+fire("MDW_GameMenu_combat_Button", "click")
+check(mdw.menus["gameMenu_combat"] and not mdw.menus.theme,
+  "opening a game menu closes MDW's own, like every other header menu")
+local function hmText(name)
+  local l = H.labels[name]
+  return l and l._echoed[#l._echoed] or ""
+end
+check(hmText("MDW_GameMenu_combat_Item1"):find("[ ] ", 1, true) ~= nil,
+  "a checked row draws an unticked box")
+check(H.labels["MDW_GameMenu_combat_Item2"]._h == 1, "a separator row is a divider line")
+check(hmText("MDW_GameMenu_combat_Item3"):find("Reset", 1, true) ~= nil
+  and hmText("MDW_GameMenu_combat_Item3"):find("[ ] ", 1, true) == nil,
+  "a row without checked draws no box")
+check(H.labels["MDW_GameMenu_combat_Bg"]._x == mdw.headerButtonX["_gameMenuButton_combat"],
+  "the dropdown anchors under its own button")
+fire("MDW_GameMenu_combat_Item1", "click")
+check(hmOn and mdw.menus["gameMenu_combat"],
+  "a keepOpen row runs and leaves the menu open")
+check(hmText("MDW_GameMenu_combat_Item1"):find("[x] ", 1, true) ~= nil,
+  "and the row re-reads its getter in place, so the box redraws ticked")
+fire("MDW_GameMenu_combat_Item3", "click")
+check(hmRan == 1 and not mdw.menus["gameMenu_combat"],
+  "a plain row runs and closes the menu")
+
+-- A row with BOTH controls: the checkbox does one thing, the rest of the row
+-- another. One label still draws it; the box is a transparent hit zone over
+-- the first four glyphs, raised above the row.
+local hmBox, hmTitle = false, 0
+mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { label = "Air", checked = function() return hmBox end,
+      onCheck = function() hmBox = not hmBox end,
+      onClick = function() hmTitle = hmTitle + 1 end },
+  }
+end })
+mdw.toggleMenu("gameMenu_combat")
+check(H.labels["MDW_GameMenu_combat_Item1_Box"] ~= nil,
+  "a row with onCheck gets a checkbox hit zone of its own")
+check(H.labels["MDW_GameMenu_combat_Item1_Box"]._w
+  < H.labels["MDW_GameMenu_combat_Item1"]._w,
+  "narrower than the row - it covers the box, not the title")
+-- Identity, not appearance: a toggle must not create or destroy a label. A
+-- rebuild driven from a row's own click deletes the label Mudlet is
+-- dispatching that click on - Mudlet frees one with deleteLater(), so Lua is
+-- left holding a name that no longer resolves and the next echo into it dies
+-- in getLabelFormat. Flipping one box is a re-echo, nothing more.
+local hmLabelBefore = H.labels["MDW_GameMenu_combat_Item1"]
+local hmBoxBefore = H.labels["MDW_GameMenu_combat_Item1_Box"]
+fire("MDW_GameMenu_combat_Item1_Box", "click")
+check(hmBox == true and hmTitle == 0 and mdw.menus["gameMenu_combat"],
+  "clicking the box toggles it, does NOT run the row, and leaves the menu open")
+check(H.labels["MDW_GameMenu_combat_Item1"] == hmLabelBefore
+  and H.labels["MDW_GameMenu_combat_Item1_Box"] == hmBoxBefore,
+  "and it rebuilt nothing - the same labels are still there, including its own")
+check(hmText("MDW_GameMenu_combat_Item1"):find("[x] ", 1, true) ~= nil,
+  "the row simply re-echoed itself, ticked")
+fire("MDW_GameMenu_combat_Item1", "click")
+check(hmTitle == 1 and hmBox == true,
+  "clicking the row runs the row's own action and leaves the box alone")
+
+-- The repaint that matters: a row whose state the GAME confirms writes on the
+-- click and learns the answer later, so the box redraws stale. When the answer
+-- lands the consumer re-declares - and THAT has to repaint the open card,
+-- because `items` is otherwise read on open only. Without this a tick appears
+-- one click late and reads as landing on the wrong row.
+hmBox = false
+mdw.toggleMenu("gameMenu_combat")
+check(hmText("MDW_GameMenu_combat_Item1"):find("[ ] ", 1, true) ~= nil,
+  "the open card shows the state it was built with")
+hmBox = true -- as a server push would set it, with the menu still open
+-- Fresh reference: the card was closed and reopened above, so its labels are
+-- legitimately new ones. What must not happen is a rebuild HERE.
+local hmLabelOpen = H.labels["MDW_GameMenu_combat_Item1"]
+mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { label = "Air", checked = function() return hmBox end,
+      onCheck = function() hmBox = not hmBox end,
+      onClick = function() hmTitle = hmTitle + 1 end },
+  }
+end })
+check(hmText("MDW_GameMenu_combat_Item1"):find("[x] ", 1, true) ~= nil
+  and mdw.menus["gameMenu_combat"]
+  and H.labels["MDW_GameMenu_combat_Item1"] == hmLabelOpen,
+  "re-declaring refreshes the open card in place, building no labels either")
+mdw.closeAllMenus()
+
+-- A PARTS row: several controls across one row's strip, each with its own
+-- target - "Volume [====] [ ] Mute" is one row, not three.
+local hmVol2, hmMute, hmInert = 40, false, 0
+mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { parts = {
+      { label = "Volume" },
+      { type = "slider", flex = true, value = hmVol2, max = 100, step = 5,
+        onChange = function(v) hmVol2 = v end },
+      { label = "Mute", checked = function() return hmMute end,
+        onCheck = function() hmMute = not hmMute end },
+    } },
+    { label = "a hint, which does nothing", onClick = nil },
+  }
+end })
+mdw.toggleMenu("gameMenu_combat")
+check(H.labels["MDW_GameMenu_combat_Item1_P1"] ~= nil
+  and H.labels["MDW_GameMenu_combat_Item1_P2_text"] ~= nil
+  and H.labels["MDW_GameMenu_combat_Item1_P3"] ~= nil,
+  "a parts row builds one element per segment - a word, a gauge, a checkbox")
+check(H.labels["MDW_GameMenu_combat_Item1_P1"]._y
+  == H.labels["MDW_GameMenu_combat_Item1_P3"]._y,
+  "and they share one row's strip rather than stacking")
+check(H.labels["MDW_GameMenu_combat_Item1_P2_text"]._w
+  > H.labels["MDW_GameMenu_combat_Item1_P3"]._w,
+  "the flex segment takes the width the fixed ones leave")
+check(H.callbacks["MDW_GameMenu_combat_Item1_P1"] == nil
+  or H.callbacks["MDW_GameMenu_combat_Item1_P1"].click == nil,
+  "a plain word segment is not a click target")
+local partsLabel = H.labels["MDW_GameMenu_combat_Item1_P3"]
+fire("MDW_GameMenu_combat_Item1_P3", "click")
+check(hmMute == true and mdw.menus["gameMenu_combat"]
+  and H.labels["MDW_GameMenu_combat_Item1_P3"] == partsLabel,
+  "its checkbox segment toggles in place, rebuilding nothing")
+check(hmText("MDW_GameMenu_combat_Item1_P3"):find("[x] ", 1, true) ~= nil,
+  "and re-echoes itself ticked")
+-- An inert row: no onClick, no onCheck, so no cursor and no hover. A caption
+-- that lights up under the pointer reads as a broken button.
+check(H.callbacks["MDW_GameMenu_combat_Item2"] == nil
+  or H.callbacks["MDW_GameMenu_combat_Item2"].enter == nil,
+  "a row that does nothing takes no hover")
+check(hmInert == 0, "and nothing ran")
+mdw.closeAllMenus()
+
+-- A SLIDER row: dragged, not clicked, and through the same mdw.bindSlider the
+-- widget rows use - so the gesture cannot drift between the two surfaces.
+local hmVol, hmCommits = 60, 0
+mdw.addHeaderMenu({ id = "combat", title = "Combat", items = function()
+  return {
+    { type = "slider", value = hmVol, max = 100, step = 5,
+      onChange = function(v) hmVol, hmCommits = v, hmCommits + 1 end },
+    { separator = true },
+    { label = "Reset", onClick = function() hmRan = hmRan + 1 end },
+  }
+end })
+mdw.toggleMenu("gameMenu_combat")
+local hmBar = H.labels["MDW_GameMenu_combat_Item1_text"]
+check(hmBar ~= nil, "a slider row builds a gauge, not a label")
+check(H.labels["MDW_GameMenu_combat_Item2"]._h == 1,
+  "and the rows after it still lay out - a slider takes one row's strip")
+-- Press at three quarters of the bar, then release: press-and-release is one
+-- gesture, so the commit lands whether or not the pointer moved.
+hmBar._w = 200
+fire("MDW_GameMenu_combat_Item1_text", "click", { x = 150, button = "LeftButton" })
+check(hmCommits == 0 and mdw.menus["gameMenu_combat"],
+  "the press commits nothing yet, and does NOT close the menu the way a click row would")
+fire("MDW_GameMenu_combat_Item1_text", "release")
+check(hmVol == 75 and hmCommits == 1,
+  "the release commits the value the pointer chose")
+
+-- The registry drives it like MDW's own: closeAllMenus, z-order and teardown
+-- all walk mdw.menuDefs.
+mdw.toggleMenu("gameMenu_combat")
+mdw.closeAllMenus()
+check(not mdw.menus["gameMenu_combat"] and H.labels["MDW_GameMenu_combat_Bg"].hidden,
+  "closeAllMenus reaches a game menu")
+
+-- An MDW update re-runs the scripts: mdw.menuDefs is a literal, rebuilt with
+-- MDW's own entries, while the declarations survive - so they have to be
+-- re-attached, and to the NEW build's renderer rather than to closures the
+-- old one left on them.
+local staleRebuild = mdw.gameHeaderMenus[1].rebuild
+local function attachedDefs()
+  local n = 0
+  for _, d in ipairs(mdw.menuDefs) do
+    if d.key == "gameMenu_combat" then n = n + 1 end
+  end
+  return n
+end
+dofile(SRC .. "MDW_Menus.lua")
+check(attachedDefs() == 0, "a script re-run drops the menu from the fresh registry")
+mdw.syncGameHeaderMenus()
+check(attachedDefs() == 1 and mdw.gameHeaderMenus[1].rebuild ~= staleRebuild,
+  "the sync re-attaches it, with the reloaded build's renderer")
+mdw.syncGameHeaderMenus()
+check(attachedDefs() == 1, "and the sync is idempotent")
+mdw.toggleMenu("gameMenu_combat")
+check(H.labels["MDW_GameMenu_combat_Bg"] ~= nil, "a re-attached menu still opens")
+mdw.closeAllMenus()
+
+check(select(2, mdw.removeHeaderMenu("combat")) == "ok"
+  and select(2, mdw.removeHeaderMenu("combat")) == "unknown_menu",
+  "a menu can be withdrawn once")
+check(H.labels["MDW_GameMenu_combat_Button"] == nil
+  and H.labels["MDW_GameMenu_combat_Bg"] == nil,
+  "withdrawal reclaims the button and the dropdown")
+check(mdw.menus["gameMenu_combat"] == nil, "and its open-state flag")
 
 -- 3. Themes incl. hover preview
 mdw.setTheme("ruby")
@@ -1195,6 +1456,7 @@ mdw.onReady["ReapGame"] = function()
   mdw.trackElement(Geyser.Label:new({ name = "ReapBadge", x = 1, y = 1, width = 5, height = 5 }))
   mdw.registerHandler("someEvent", "reapHandler", function() end)
   mdw.addMenuItem({ id = "reapRow", label = "Reap Row", onClick = function() end })
+  mdw.addHeaderMenu({ id = "reapMenu", title = "Reap", items = {} })
 end
 mdw.gamePackages["ReapGameUI"] = "ReapGame" -- value = owner key (differs from package name)
 mdw.runReadyCallbacks("ReapGame")
@@ -1206,12 +1468,17 @@ check(mdw.bars["ReapBar"].owner == "ReapGame", "bar stamped")
 check(H.labels["ReapBadge"]._mdwOwner == "ReapGame", "adopted raw element stamped")
 check(mdw.handlers["MDW_reapHandler"] == "ReapGame", "handler stamped")
 check(mdw.gameMenu[1] and mdw.gameMenu[1].owner == "ReapGame", "gear-menu row stamped")
+check(mdw.gameHeaderMenus[1] and mdw.gameHeaderMenus[1].owner == "ReapGame",
+  "header menu stamped")
+check(H.labels["MDW_GameMenu_reapMenu_Button"] ~= nil, "and its button is on the bar")
 raiseEvent("sysUninstallPackage", "ReapGameUI")
 check(mdw.widgets["ReapWidget"] == nil, "owned widget reaped on game uninstall")
 check(mdw.bars["ReapBar"] == nil and H.labels["MDW_Bar_ReapBar_Bg"] == nil, "owned bar reaped")
 check(H.labels["ReapBadge"] == nil, "owned adopted element reaped")
 check(mdw.handlers["MDW_reapHandler"] == nil, "owned handler reaped")
 check(#mdw.gameMenu == 0, "owned gear-menu row reaped")
+check(#mdw.gameHeaderMenus == 0 and H.labels["MDW_GameMenu_reapMenu_Button"] == nil,
+  "owned header menu reaped, button and all")
 check(mdw.onReady["ReapGame"] == nil, "owner's onReady registration removed")
 check(mdw.gamePackages["ReapGameUI"] == nil, "co-removal entry consumed by the reap")
 check(mdw.widgets["Items"] ~= nil, "other consumers' widgets untouched by the reap")
@@ -1465,8 +1732,14 @@ mdw.gameSettings.TestGame = { promptBar = { worth = false } }
 mdw.floatWidget("LateWidget")
 mdw.widgets[mdw.widgets["LateWidget"].stackId].container:move(517, 233)
 mdw.saveLayout()
+-- A declared header menu outlives the teardown the way onReady does, and the
+-- rebuilt bar carries its button again without the package re-declaring.
+mdw.addHeaderMenu({ id = "update", title = "Update", items = {} })
 mdw.teardown()
 check(not mdw.isSetUp, "teardown completes")
+check(H.labels["MDW_GameMenu_update_Button"] == nil
+  and mdw.headerMenus()[1].id == "update",
+  "teardown frees a game menu's button but keeps the declaration")
 check(TEARDOWN_RUNS == 1, "seeded onTeardown callback ran (past the broken one)")
 mdw.gameSettings = {} -- as after a Mudlet restart: only the file remembers
 dofile(SRC .. "MDW_Examples.lua") -- scripts re-run on a real reinstall
@@ -1475,6 +1748,9 @@ flushTimers()
 check(mdw.gameSettings.TestGame and mdw.gameSettings.TestGame.promptBar.worth == false,
   "game-package settings restored from the layout file")
 check(mdw.isSetUp, "second setup (layout restore) completes")
+check(H.labels["MDW_GameMenu_update_Button"] ~= nil,
+  "and the rebuild puts it back on the bar")
+mdw.removeHeaderMenu("update")
 check(mdw.widgets["Comm"] ~= nil and mdw.widgets["Comm"].stackId ~= nil,
   "Comm restored into a group from saved layout")
 check(mdw.config.theme == "ruby", "user's saved theme beats gameConfig default after reload")
@@ -1717,14 +1993,21 @@ do
   -- nearer: edges flush, and edges touching.
   local b = mdw.widgets[mdw.widgets["PreWidget"].stackId]
   local bw, bh = b.container:get_width(), b.container:get_height()
+  local gap = mdw.config.floatSnapGap
   check((mdw.snapFloat(a, 500 + dist - 1, 900, aw, ah)) == 500,
     "left edges line up with another float's")
-  check((mdw.snapFloat(a, 500 + bw + dist - 1, 900, aw, ah)) == 500 + bw,
-    "and a float dropped beside it sits against its right side")
-  check(select(2, mdw.snapFloat(a, 900, 400 + bh + dist - 1, aw, ah)) == 400 + bh,
-    "stacking below it touches the same way")
+  check((mdw.snapFloat(a, 500 + bw + gap + dist - 1, 900, aw, ah)) == 500 + bw + gap,
+    "and a float dropped beside it sits a floatSnapGap off its right side")
+  check(select(2, mdw.snapFloat(a, 900, 400 + bh + gap + dist - 1, aw, ah))
+    == 400 + bh + gap,
+    "stacking below it keeps the same gap - two borders, not one thick edge")
+  check(gap > 0 and (mdw.snapFloat(a, 500 + bw + dist - 1, 900, aw, ah))
+    ~= 500 + bw,
+    "flush against a neighbour is not itself a target")
+  check((mdw.snapFloat(a, 500 - aw - gap + 1, 900, aw, ah)) == 500 - aw - gap,
+    "and against its left side, gapped the same way")
   check((mdw.snapFloat(a, 500 + bw - aw + 1, 900, aw, ah)) == 500 + bw - aw,
-    "right edges line up too")
+    "right edges line up too - a flush alignment takes no gap")
 
   -- A float is never its own target: sitting exactly on b's spot, a drag well
   -- away from every edge is left alone.

@@ -113,6 +113,19 @@ free: the gear rebuilds on open, so they are read then. Rows carry
 `mdw._currentOwner` and are reaped by `cleanupGame`, like everything else made
 inside an onReady callback.
 
+A consumer's own header dropdown (`mdw.addHeaderMenu`) works the same way one
+level up: the declaration IS its `mdw.menuDefs` entry, so exclusivity,
+click-away, z-order, restyle and teardown come free, and its rows are built per
+open like the gear's. Two things are load-order traps. `mdw.gameHeaderMenus`
+survives a script re-run and `mdw.menuDefs` does NOT (it is a literal rebuilt
+with MDW's own entries), so `createHeaderMenus` calls
+`mdw.syncGameHeaderMenus()` first - the one place that runs after both this
+file and every onReady. And that sync re-mints each `rebuild`/`destroy`
+closure, so a declaration that survived an MDW update is rendered by the new
+build's code, never by closures the old one left on it. Game menus append
+AFTER MDW's own buttons (the mirror of the gear, where game rows lead) for the
+same reason: no button the player has learned the position of moves.
+
 ## Mudlet/Geyser quirks this codebase encodes
 
 - **`decho` on a label renders at the label's OWN font size** (`setFontSize`),

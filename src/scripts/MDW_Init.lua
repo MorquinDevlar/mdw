@@ -1903,6 +1903,13 @@ function mdw.cleanupGame(owner)
   for i = #(mdw.gameMenu or {}), 1, -1 do
     if mdw.gameMenu[i].owner == owner then table.remove(mdw.gameMenu, i) end
   end
+  -- Header dropdowns the owner declared (stamped in mdw.addHeaderMenu).
+  -- By id, not by index: removal detaches the menu from the registry and the
+  -- header bar too, which is more than dropping the declaration.
+  for i = #(mdw.gameHeaderMenus or {}), 1, -1 do
+    local menu = mdw.gameHeaderMenus[i]
+    if menu.owner == owner then mdw.removeHeaderMenu(menu.id) end
+  end
   -- Shared prompt-bar surfaces, only if this owner declared them
   if mdw.promptGaugeOwner == owner then mdw.setPromptGauges(nil) end
   if mdw.promptBarMenuOwner == owner then mdw.setPromptBarMenu(nil) end

@@ -10,6 +10,56 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- `mdw.addHeaderMenu(spec)` / `mdw.removeHeaderMenu(id)` / `mdw.headerMenus()`:
+  a game package can hang a dropdown of its own in the header bar, beside Font
+  Size and Theme, for choices that are a set rather than a single gear row.
+  Rows take the context menu's shape (`label`, `onClick`, `separator`,
+  `checked`, `keepOpen`), `items` may be a function re-evaluated on every open,
+  and menus are owner-stamped and reaped with the package like widgets and gear
+  rows. Game menus follow MDW's own buttons, so none of them move.
+- Header menus (`mdw.addHeaderMenu`) accept a `type = "slider"` row: dragged
+  rather than clicked, taking the same fields as a widget slider row and
+  going through the same gesture code, so a menu can carry a volume or
+  brightness control. The menu stays open while the pointer is down.
+- A header-menu row can be built from SEGMENTS laid left to right - `parts`,
+  each a label, a slider or a checkbox with its own click target, one of them
+  `flex` to take the width the others leave. "Volume [====] [ ] Mute" is one
+  row rather than three.
+- A header-menu row can carry TWO actions: `onCheck` runs when the checkbox
+  itself is clicked, `onClick` when the rest of the row is. That makes a list
+  row whose box and whose text mean different things - a playlist tick beside
+  a title that plays - without listing the same items twice.
+- A header-menu row that declares neither `onClick` nor `onCheck` is inert:
+  no pointer cursor, no hover highlight. A caption or a hint that lit up under
+  the pointer read as a button that did nothing.
+
+### Changed
+- Two floats dragged against each other now snap `mdw.config.floatSnapGap` (2)
+  pixels apart instead of edge to edge, so both panels keep a visible border
+  instead of sharing one thick smeared line. Lining floats up (left-to-left,
+  right-to-right) is unchanged.
+
+### Fixed
+- Clicking a checkbox or a keepOpen row in a header menu no longer throws a
+  Lua error. Flipping one box rebuilt the whole card, which deletes the very
+  label Mudlet is dispatching the click on; such a row now just re-reads its
+  own getters and re-echoes itself, creating and destroying nothing. The same
+  in-place refresh carries a re-declaration while the menu is open, so a
+  checkbox the game confirms a moment later still catches up on its own.
+- Gauge and slider rows no longer error on their first paint. A fresh Geyser
+  label carries no stylesheet, `getLabelStyleSheet` answers nil for one, and
+  `getLabelFormat` indexes that - so the first thing to echo into a gauge's
+  text label (`setFgColor` is an echo) threw a Lua error per repaint. Both the
+  widget rows and the new menu sliders now style that label directly before
+  anything writes to it, rather than through `Geyser.Gauge:setStyleSheet`,
+  which would need a front and a back stylesheet it has no reason to set.
+- An open header menu now repaints when its owner re-declares it. `items` was
+  read on open only, so a menu whose rows track live game state - a checkbox
+  the server confirms a moment after the click - sat stale in front of the
+  player until they closed and reopened it, making a tick look like it landed
+  on the wrong row.
+
 ## 0.9.2 - 2026-09-06
 
 ### Added
