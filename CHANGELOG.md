@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.3 - 2026-09-07
+
 ### Added
 - `mdw.addHeaderMenu(spec)` / `mdw.removeHeaderMenu(id)` / `mdw.headerMenus()`:
   a game package can hang a dropdown of its own in the header bar, beside Font
