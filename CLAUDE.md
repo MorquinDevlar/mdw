@@ -34,6 +34,35 @@ header dropdowns.
   the same reason a just-dragged one is. `mdw.layoutBars` is the single hook
   that carries attached floats along, because every route that moves the main
   console area's edges ends there.
+- **Joins are the same trick one level up, and `updateResizeBorders` is their
+  hook.** Two floats sitting `floatSnapGap` apart are joined; one travels with
+  the other. `stickSide` decides WHICH from geometry alone, and the order of
+  its clauses is the design: a float attached to a chrome edge never follows on
+  that axis (the edge is boss, and this REVERSES a pair so a panel resting on a
+  bottom-attached float rides up with it), else the far-side float follows,
+  else - both attached - neither does. Never symmetric: that would carry the
+  whole cluster whichever member was grabbed, leaving no way to separate a
+  snapped pair. Direction is unique per pair, so the follow graph is acyclic.
+  `updateResizeBorders` caches `_floatGeom` and calls `mdw.carryStuckFloats`
+  when it differs, so drag, resize, reveal and edge-carry all join without a
+  hook each; `_carryingStuck` is the re-entry guard, since every follower's
+  move lands back in the same function. A follower tracks the EDGE it is joined
+  to (so a resize pushes it) and keeps its own offset on the other axis unless
+  an edge pins it there. A carried float is excluded from `snapNeighbours`, or
+  the pair pins itself for the whole snap distance.
+- **Snap targets are NARROWED to the joined float.** `snapPool` gives a drag
+  (move and resize alike) only the floats `mdw.joinedNeighbours` reports, and
+  falls back to the whole layer when there are none. Every float offering a
+  line meant a panel with two misaligned panels above it had two targets a few
+  pixels apart and nothing to say which it hit. The fallback is not optional -
+  it is what a column is built from before anything is joined.
+- **Attachment paint is a whole-layer PASS, not a per-float refresh.** A join
+  is pairwise, so the float that moved is only half of one - the panel it just
+  arrived under would keep its old border. `mdw.refreshFloatAttachments` reads
+  each float's geometry once and then compares pairs as plain arithmetic, which
+  is why it is cheap enough to run on every geometry change. Both borders of a
+  join light (`stuckSides` is a SET: the middle of a column is a follower on
+  top and an anchor underneath), so nothing may go back to one side per axis.
 
 ## The consumer contract (game packages)
 

@@ -122,6 +122,9 @@ end
 -- (the diagonal cursors have no named constant in older Mudlet builds, which
 -- is also why their setCursor is pcall-guarded below). `borderSide` is the
 -- CSS side an edge paints its line on, used by the theme-preview restyle.
+-- A corner's `sideY`/`sideX` are the edges its two arms run along, compared
+-- against a float's anchorY/anchorX so mdw.resizeBorderStyle lights one arm
+-- without the other.
 mdw.resizeBorders = {
   { field = "resizeLeft", suffix = "_ResizeLeft", edge = "left",
     style = "resizeLeft", cursor = "ResizeHorizontal", borderSide = "right" },
@@ -132,13 +135,17 @@ mdw.resizeBorders = {
   { field = "resizeTop", suffix = "_ResizeTop", edge = "top",
     style = "resizeTop", cursor = "ResizeVertical", borderSide = "bottom" },
   { field = "resizeTopLeft", suffix = "_ResizeCornerTL", edge = "topLeft",
-    style = "resizeCornerTL", cursor = 8, corner = true },
+    style = "resizeCornerTL", cursor = 8, corner = true,
+    sideY = "top", sideX = "left" },
   { field = "resizeTopRight", suffix = "_ResizeCornerTR", edge = "topRight",
-    style = "resizeCornerTR", cursor = 7, corner = true },
+    style = "resizeCornerTR", cursor = 7, corner = true,
+    sideY = "top", sideX = "right" },
   { field = "resizeBottomLeft", suffix = "_ResizeCornerBL", edge = "bottomLeft",
-    style = "resizeCornerBL", cursor = 7, corner = true },
+    style = "resizeCornerBL", cursor = 7, corner = true,
+    sideY = "bottom", sideX = "left" },
   { field = "resizeBottomRight", suffix = "_ResizeCornerBR", edge = "bottomRight",
-    style = "resizeCornerBR", cursor = 8, corner = true },
+    style = "resizeCornerBR", cursor = 8, corner = true,
+    sideY = "bottom", sideX = "right" },
 }
 
 --- Delete any leftover resize-border labels for a base name. Why: when a
@@ -918,15 +925,41 @@ end
 -- FLOAT SNAPPING
 ---------------------------------------------------------------------------
 
---- The floating groups a drag can snap against: on screen, undocked, and not
--- the one being dragged. Docked groups are deliberately absent - they live in
--- the sidebars, outside the area a float is being aligned within.
+--- The floats a snap can align `widget` against: the ones it is already JOINED
+-- to, or - when it is joined to nothing - every other float on screen.
+--
+-- The narrowing is what keeps a column unambiguous. Every float used to offer
+-- a line of its own, so a panel with two misaligned panels above it had two
+-- left-edge targets a few pixels apart and the player picked the wrong well.
+-- A panel already sitting in a column aligns to the panel it is joined to and
+-- to nothing else; one joined to nothing still sees the whole layer, which is
+-- how a column gets built in the first place.
+--
+-- Docked groups are deliberately absent either way - they live in the
+-- sidebars, outside the area a float is being aligned within.
+local function snapPool(widget)
+  local pool = mdw.joinedNeighbours(widget)
+  if #pool > 0 then return pool end
+  for _, w in pairs(mdw.widgets) do
+    if w ~= widget and w.isStack and not w.docked
+      and w.visible ~= false and w.container then
+      pool[#pool + 1] = w
+    end
+  end
+  return pool
+end
+
+--- The floating groups a MOVE drag can snap against.
+--
+-- A float STUCK to the dragged one is absent, because it travels with it
+-- (mdw.carryStuckFloats): it sits at exactly the gap a snap would pull back
+-- to, so leaving it in would pin the pair in place for the whole
+-- floatSnapDistance and then jump.
 local function snapNeighbours(dragged)
   local out = {}
-  for _, w in pairs(mdw.widgets) do
-    if w ~= dragged and w.isStack and not w.docked and w.visible ~= false and w.container then
-      out[#out + 1] = w
-    end
+  local _, carried = mdw.stuckFollowers(dragged)
+  for _, w in ipairs(snapPool(dragged)) do
+    if not carried[w.name] then out[#out + 1] = w end
   end
   return out
 end
@@ -1012,36 +1045,352 @@ function mdw.snapFloat(dragged, x, y, w, h)
   return nearest(x, xs, dist) or x, nearest(y, ys, dist) or y
 end
 
+--- Which edge of the box each resize handle drags, per axis. "near" is the
+-- left/top edge - the one that moves the container's origin - and "far" the
+-- right/bottom one, which leaves the origin alone and only changes the size.
+mdw.resizeEdgeAxes = {
+  left        = { x = "near" },
+  right       = { x = "far" },
+  top         = { y = "near" },
+  bottom      = { y = "far" },
+  topLeft     = { x = "near", y = "near" },
+  topRight    = { x = "far",  y = "near" },
+  bottomLeft  = { x = "near", y = "far" },
+  bottomRight = { x = "far",  y = "far" },
+}
+
+--- The lines the edge being resized can land on: the main console area's own
+-- edge and the other floats' edges on that axis. The same targets the move
+-- snap offers - FLUSH with a neighbour's edge, or a cfg.floatSnapGap off it -
+-- but expressed as edge positions, because a resize moves one edge and leaves
+-- the opposite one where it is. Flush is what makes a panel the same width as
+-- the one above it, which is the whole reason to snap a resize.
+--
+-- Drawn from snapPool, so a panel already in a column is measured against the
+-- panel it is joined to and nothing further up.
+--
+-- A float this one CARRIES is left out where its line would track the drag and
+-- pin the edge for the whole snap distance: on the axis it is joined by (its
+-- position is derived from this float's edge), and on any axis at all when the
+-- near edge is dragged, since that moves the origin every follower rides on. A
+-- follower BELOW is still a target for a width drag - it does not move - which
+-- is exactly how a column gets one width from either end.
+-- @param which "near" or "far"
+function mdw.resizeSnapLines(widget, axis, which)
+  local gap = mdw.config.floatSnapGap or 0
+  local left, top, right, bottom = mdw.floatSnapEdges()
+  local edge
+  if axis == "x" then
+    edge = (which == "near") and left or right
+  else
+    edge = (which == "near") and top or bottom
+  end
+  local lines = { edge }
+
+  local followers = mdw.stuckFollowers(widget)
+  local sideOf = {}
+  for _, entry in ipairs(followers) do sideOf[entry.widget.name] = entry.side end
+
+  for _, o in ipairs(snapPool(widget)) do
+    local side = sideOf[o.name]
+    local joinedHere = (axis == "x" and (side == "left" or side == "right"))
+      or (axis == "y" and (side == "top" or side == "bottom"))
+    if not (side and (which == "near" or joinedHere)) then
+      local a, len
+      if axis == "x" then
+        a, len = o.container:get_x(), o.container:get_width()
+      else
+        a, len = o.container:get_y(), o.container:get_height()
+      end
+      if which == "near" then
+        lines[#lines + 1] = a             -- flush with its near edge
+        lines[#lines + 1] = a + len + gap -- sitting against its far side
+      else
+        lines[#lines + 1] = a + len       -- flush with its far edge
+        lines[#lines + 1] = a - gap       -- sitting against its near side
+      end
+    end
+  end
+  return lines
+end
+
+--- Pull a live resize's delta onto the nearest line, or leave it alone when
+-- none is in range - away from a line the drag stays on the pixel.
+--
+-- Measured from where the dragged edge STARTED, so it is the same delta the
+-- resize branches already work in and the min/max clamps still run after: a
+-- line the clamp cannot reach simply does not take.
+function mdw.snapResizeDelta(widget, axis, which, delta)
+  local dist = mdw.config.floatSnapDistance or 0
+  if dist <= 0 or not widget then return delta end
+  local d = mdw.resizeDrag
+  local start
+  if axis == "x" then
+    start = (which == "near") and d.startX or (d.startX + d.startWidth)
+  else
+    start = (which == "near") and d.startY or (d.startY + d.startHeight)
+  end
+  local line = nearest(start + delta, mdw.resizeSnapLines(widget, axis, which), dist)
+  return line and (line - start) or delta
+end
+
 ---------------------------------------------------------------------------
--- EDGE ATTACHMENT
--- A float sitting on an edge of the snap rectangle is ATTACHED to it: it
--- travels with that edge when the chrome moves, and its resize borders say so.
+-- ATTACHMENT
+-- A float sitting on an edge of the snap rectangle is ATTACHED to it, and two
+-- floats sitting against each other are JOINED: one of them travels with the
+-- other, and both light the borders where they meet. An edge attachment wins
+-- every join it is part of - the edge is boss, so nothing snapped onto a
+-- sidebar- or top/bottom-attached panel can drag it off its edge.
+-- Both relations are DERIVED from geometry every time they are needed, so
+-- nothing persists them and nothing has to invalidate them.
 ---------------------------------------------------------------------------
 
 -- One pixel of tolerance, not zero: clampToWindow can shave a snapped
 -- position, and a float a pixel off an edge is one the player put there.
 local ANCHOR_TOLERANCE = 1
 
---- Record which edges of mdw.floatSnapEdges() a floating group is sitting on.
+-- Defined below, next to the anchor derivation it belongs with, but called by
+-- the pass above it.
+local deriveEdgeAnchors
+
+--- A float's geometry as a plain rectangle, so the stick maths can work on a
+-- SNAPSHOT: mdw.carryStuckFloats measures the followers against where their
+-- anchor was before it moved, which the live container can no longer report.
+local function floatRect(widget)
+  local c = widget.container
+  return { x = c:get_x(), y = c:get_y(), w = c:get_width(), h = c:get_height() }
+end
+
+-- The far side of each near one, so a follower's touching side gives the
+-- anchor's facing side and vice versa. Both light: a join is drawn on the two
+-- borders that meet, not on one of them.
+local OPPOSITE_SIDE =
+  { top = "bottom", bottom = "top", left = "right", right = "left" }
+
+--- Does `follower` travel with `anchor` (whose geometry is `rect`), and by
+-- which of the FOLLOWER's own sides is it joined to it?
+--
+-- Only the TOUCHING snaps join (cfg.floatSnapGap between the two); a bare
+-- line-up alignment two panels apart is alignment, not a join. The extents
+-- must overlap on the other axis as well, or two panels at opposite corners
+-- that happen to be a gap apart would count.
+--
+-- Exactly ONE of a joined pair follows, and which one is the whole rule:
+--
+--   * A float attached to a chrome edge on that axis NEVER follows on it. The
+--     edge is boss: nothing a player snaps onto a sidebar-, top- or
+--     bottom-attached panel can drag it off its edge.
+--   * Otherwise the float on the FAR side follows, so a column hangs off its
+--     top panel and a row off its leftmost.
+--   * Two floats both pinned to edges on the axis are both boss; neither
+--     follows.
+--
+-- The first clause is what reverses a pair: a panel resting on a
+-- bottom-attached one follows it UP when the prompt bar takes the edge with
+-- it, which is the only way a column can grow off the bottom of the screen.
+-- Direction is decided per pair and can never come out both ways, so the
+-- follow graph has no cycles to guard against.
+-- @return "top", "bottom", "left", "right" (a side of `follower`), or nil
+local function stickSide(anchor, rect, follower, fRect)
+  local f = fRect or floatRect(follower)
+  local gap = mdw.config.floatSnapGap or 0
+  local function at(a, b) return math.abs(a - b) <= ANCHOR_TOLERANCE end
+  local function overlaps(a, aLen, b, bLen) return a < b + bLen and b < a + aLen end
+
+  if overlaps(f.x, f.w, rect.x, rect.w) and not follower.anchorY then
+    if at(f.y, rect.y + rect.h + gap) then
+      return "top"                                  -- follower sits below
+    elseif at(rect.y, f.y + f.h + gap) and anchor.anchorY then
+      return "bottom"                               -- follower rests on a boss
+    end
+  end
+  if overlaps(f.y, f.h, rect.y, rect.h) and not follower.anchorX then
+    if at(f.x, rect.x + rect.w + gap) then
+      return "left"                                 -- follower sits to the right
+    elseif at(rect.x, f.x + f.w + gap) and anchor.anchorX then
+      return "right"                                -- follower leans on a boss
+    end
+  end
+  return nil
+end
+
+--- Every float that travels with `anchor`, transitively - a column of three
+-- moves as three. Ordered so a float always comes after the one it is stuck
+-- to, which is what lets mdw.carryStuckFloats place a whole chain in one pass.
+--
+-- `rect` is the geometry to measure `anchor` against; the carry passes the
+-- geometry from BEFORE the move, since that is what the followers are still
+-- sitting against. Defaults to where the anchor is now.
+-- @return list of { widget, side, anchor }, and a set of the same names
+function mdw.stuckFollowers(anchor, rect)
+  local list, seen = {}, {}
+  if not anchor or not anchor.container or anchor.docked then return list, seen end
+  seen[anchor.name] = true
+  local frontier = { { widget = anchor, rect = rect or floatRect(anchor) } }
+  while #frontier > 0 do
+    local node = table.remove(frontier, 1)
+    for _, w in pairs(mdw.widgets) do
+      if not seen[w.name] and w.isStack and not w.docked
+        and w.visible ~= false and w.container then
+        local side = stickSide(node.widget, node.rect, w)
+        if side then
+          seen[w.name] = true
+          list[#list + 1] = { widget = w, side = side, anchor = node.widget }
+          frontier[#frontier + 1] = { widget = w, rect = floatRect(w) }
+        end
+      end
+    end
+  end
+  seen[anchor.name] = nil
+  return list, seen
+end
+
+--- The floats `widget` is directly JOINED to, in either direction - the ones
+-- it follows and the ones that follow it. What snapPool narrows a drag's
+-- alignment targets to, so a panel in a column cannot pick up a line from a
+-- misaligned panel further up.
+--
+-- Direct only, never transitive: the point is the ONE panel a joined float is
+-- sitting against.
+-- @return array of floats, empty when it is joined to nothing
+function mdw.joinedNeighbours(widget)
+  local out = {}
+  if not widget or not widget.container or widget.docked then return out end
+  if widget.visible == false then return out end
+  local me = floatRect(widget)
+  for _, o in pairs(mdw.widgets) do
+    if o ~= widget and o.isStack and not o.docked
+      and o.visible ~= false and o.container then
+      local orect = floatRect(o)
+      if stickSide(o, orect, widget, me) or stickSide(widget, me, o, orect) then
+        out[#out + 1] = o
+      end
+    end
+  end
+  return out
+end
+
+--- Carry every float stuck to `anchor` along with it, `prev` being the
+-- anchor's geometry before whatever just changed it.
+--
+-- A follower tracks the EDGE it is joined to, not the anchor's origin: growing
+-- a panel downwards pushes the one below it down, while growing it upwards
+-- leaves that one alone. On the other axis the follower keeps its own offset,
+-- so a left-aligned column stays aligned and a deliberately offset panel stays
+-- offset - unless the follower is attached to a chrome edge on that axis, in
+-- which case its edge holds it and only the joined axis moves.
+function mdw.carryStuckFloats(anchor, prev)
+  -- Restore places every float from the file; _carryingStuck is the re-entry
+  -- guard, since each follower's own updateResizeBorders lands back here.
+  if mdw._restoringLayout or mdw._carryingStuck then return end
+  if not anchor or anchor.docked or anchor.visible == false then return end
+  local list = mdw.stuckFollowers(anchor, prev)
+  if #list == 0 then return end
+
+  local gap = mdw.config.floatSnapGap or 0
+  -- Each follower is placed from ITS OWN anchor's before/after pair, so a
+  -- chain resolves left to right through the ordered list.
+  local moves = { [anchor.name] = { old = prev, new = floatRect(anchor) } }
+  mdw._carryingStuck = true
+  for _, entry in ipairs(list) do
+    local m = moves[entry.anchor.name]
+    local f, old = entry.widget, floatRect(entry.widget)
+    -- The perpendicular offset rides along, except where an edge holds it.
+    local dx = f.anchorX and 0 or (m.new.x - m.old.x)
+    local dy = f.anchorY and 0 or (m.new.y - m.old.y)
+    local x, y
+    if entry.side == "top" then
+      x, y = old.x + dx, m.new.y + m.new.h + gap
+    elseif entry.side == "bottom" then
+      x, y = old.x + dx, m.new.y - old.h - gap
+    elseif entry.side == "left" then
+      x, y = m.new.x + m.new.w + gap, old.y + dy
+    else
+      x, y = m.new.x - old.w - gap, old.y + dy
+    end
+    x, y = mdw.clampToWindow(x, y, old.w, old.h)
+    -- Recorded even when the clamp left it where it was, so its own followers
+    -- still resolve against a real pair.
+    moves[f.name] = { old = old, new = { x = x, y = y, w = old.w, h = old.h } }
+    if x ~= old.x or y ~= old.y then
+      f.container:move(x, y)
+      -- A floating stack's members are siblings, not children: they have to be
+      -- re-placed under the moved container.
+      if mdw.resizeStackContent then mdw.resizeStackContent(f) end
+      mdw.updateResizeBorders(f)
+    end
+  end
+  mdw._carryingStuck = false
+end
+
+--- Re-derive where every float is attached and what it is joined to, in ONE
+-- pass, and repaint the borders that changed.
+--
+-- A pass, not a per-float refresh, because a join is PAIRWISE: the float that
+-- moved is only ever half of one, so the panel it just arrived under (or left)
+-- would keep the paint it had. Cheap enough to run on every geometry change
+-- because the geometry is read once per float here and the pairs are then
+-- plain arithmetic - the per-float version read four getters per candidate.
+function mdw.refreshFloatAttachments()
+  local left, top, right, bottom = mdw.floatSnapEdges()
+  local floats, rects = {}, {}
+  for _, w in pairs(mdw.widgets) do
+    if w.isStack and w.container then
+      deriveEdgeAnchors(w, left, top, right, bottom)
+      if not w.docked and w.visible ~= false then
+        floats[#floats + 1] = w
+        rects[w.name] = floatRect(w)
+        w.stuckSides = nil
+      end
+    end
+  end
+  -- Every ordered pair, since only one of the two orderings can produce a
+  -- follower and each hit lights the two borders that meet.
+  for i = 1, #floats do
+    for j = 1, #floats do
+      if i ~= j then
+        local f, o = floats[i], floats[j]
+        local side = stickSide(o, rects[o.name], f, rects[f.name])
+        if side then
+          f.stuckSides = f.stuckSides or {}
+          f.stuckSides[side] = true
+          o.stuckSides = o.stuckSides or {}
+          o.stuckSides[OPPOSITE_SIDE[side]] = true
+        end
+      end
+    end
+  end
+  for _, w in ipairs(floats) do mdw.refreshResizeBorderStyles(w) end
+end
+
+--- Record which edges of mdw.floatSnapEdges() a floating group is sitting on,
+-- the edges already measured so a whole-layer pass asks for them once.
 --
 -- DERIVED from the position, never a flag set by the drag that produced it: a
 -- float restored from the layout file at an edge is attached for exactly the
 -- reason a just-dragged one is, so nothing has to persist the attachment or
 -- remember to invalidate it when the float is moved by some other path.
-function mdw.updateFloatAnchors(widget)
-  if not widget or not widget.container then return end
+deriveEdgeAnchors = function(widget, left, top, right, bottom)
   -- Docked is attached to a dock, not to an edge; leaving the last float's
-  -- anchors on it would have them read back stale if it floats again.
+  -- attachment on it would have it read back stale if it floats again.
   if widget.docked then
     widget.anchorX, widget.anchorY = nil, nil
+    widget.stuckSides = nil
     return
   end
-  local left, top, right, bottom = mdw.floatSnapEdges()
   local x, y = widget.container:get_x(), widget.container:get_y()
   local w, h = widget.container:get_width(), widget.container:get_height()
   local function at(a, b) return math.abs(a - b) <= ANCHOR_TOLERANCE end
   widget.anchorX = (at(x, left) and "left") or (at(x + w, right) and "right") or nil
   widget.anchorY = (at(y, top) and "top") or (at(y + h, bottom) and "bottom") or nil
+end
+
+--- One float's edge attachment. The joins are pairwise and so belong to
+-- mdw.refreshFloatAttachments; this is what the carry needs before it can ask
+-- which half of a pair is boss.
+function mdw.updateFloatAnchors(widget)
+  if not widget or not widget.container then return end
+  deriveEdgeAnchors(widget, mdw.floatSnapEdges())
 end
 
 --- Carry every attached float back onto its edge. The chrome moves under
@@ -1289,6 +1638,14 @@ function mdw.setupResizeBorder(internalWidget, border, edge)
     if mdw.resizeDrag.active and mdw.resizeDrag.widget == widget and mdw.resizeDrag.edge == edge then
       local deltaX = event.globalX - mdw.resizeDrag.startMouseX
       local deltaY = event.globalY - mdw.resizeDrag.startMouseY
+      -- The dragged edge snaps to the same lines a dragged float does, so a
+      -- panel can be pulled out to exactly the width of the one above it. Each
+      -- axis of a corner is decided on its own, as in the move snap.
+      local axes = mdw.resizeEdgeAxes[edge]
+      if axes then
+        if axes.x then deltaX = mdw.snapResizeDelta(widget, "x", axes.x, deltaX) end
+        if axes.y then deltaY = mdw.snapResizeDelta(widget, "y", axes.y, deltaY) end
+      end
       -- Cap growth so the right/bottom edges stay inside the window.
       local winW, winH = getMainWindowSize()
       local maxW = math.max(cfg.minFloatingWidth, winW - mdw.resizeDrag.startX - (cfg.resizeHitWidth or 0))
@@ -1403,6 +1760,20 @@ function mdw.updateResizeBorders(widget)
   -- owner.
   mdw.updateFloatAnchors(widget)
   mdw.refreshResizeBorderStyles(widget)
+
+  -- The geometry this float had the LAST time through, kept so the same choke
+  -- point can carry the floats stuck to it: they are still sitting against the
+  -- old rectangle, which nothing else remembers by the time we get here. That
+  -- makes sticking work for every path at once - drag, resize, reveal, an edge
+  -- attachment carrying this float - instead of one hook per drag.
+  local prev = widget._floatGeom
+  widget._floatGeom = { x = x, y = y, w = w, h = h }
+  if prev and (prev.x ~= x or prev.y ~= y or prev.w ~= w or prev.h ~= h) then
+    mdw.carryStuckFloats(widget, prev)
+    -- Once, at the end: every follower's own move lands back in here, and the
+    -- pass has to see the layer in its final shape.
+    if not mdw._carryingStuck then mdw.refreshFloatAttachments() end
+  end
 end
 
 function mdw.showResizeHandles(widget)

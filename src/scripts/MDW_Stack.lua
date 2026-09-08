@@ -552,6 +552,8 @@ function mdw.destroyStack(stack)
 
   local side = stack.docked
   mdw.widgets[stack.name] = nil
+  -- Anything that was stuck to it is not, and only a sweep can tell it so.
+  if mdw.refreshFloatAttachments then mdw.refreshFloatAttachments() end
   if side then mdw.reorganizeDock(side) end
 end
 

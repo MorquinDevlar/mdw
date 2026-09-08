@@ -2001,6 +2001,12 @@ do
   check(select(2, mdw.snapFloat(a, 900, 400 + bh + gap + dist - 1, aw, ah))
     == 400 + bh + gap,
     "stacking below it keeps the same gap - two borders, not one thick edge")
+  -- The gap is a CONTAINER measure and each float paints a border outside its
+  -- own container, so matching the edge clearance the player sees means
+  -- carrying two border widths more than the inset does.
+  check(gap - 2 * mdw.config.resizeBorderWidth
+    == mdw.config.floatSnapInset - mdw.config.resizeBorderWidth,
+    "and the gap the player SEES is the one an edge-snapped float leaves")
   check(gap > 0 and (mdw.snapFloat(a, 500 + bw + dist - 1, 900, aw, ah))
     ~= 500 + bw,
     "flush against a neighbour is not itself a target")
@@ -2042,6 +2048,17 @@ do
   check(a.resizeLeft._css == mdw.styles.resizeLeftAnchored
     and a.resizeTopLeft._css == mdw.styles.resizeCornerTLAnchored,
     "and wears the attached border, edges and corners alike")
+  -- Only the attached sides light: the highlight names the edges this float
+  -- will follow, so the ones it is not on keep the plain border.
+  check(a.resizeRight._css == mdw.styles.resizeRight
+    and a.resizeBottom._css == mdw.styles.resizeBottom
+    and a.resizeBottomRight._css == mdw.styles.resizeCornerBR,
+    "while the edges it is NOT on stay plain, corner between them included")
+  -- The two corners the attachment only half reaches light one arm each: the
+  -- top-right sits on the top edge, the bottom-left on the left one.
+  check(a.resizeTopRight._css == mdw.styles.resizeCornerTRAnchoredY
+    and a.resizeBottomLeft._css == mdw.styles.resizeCornerBLAnchoredX,
+    "and a corner with one arm along an attached edge lights that arm alone")
   check(free.anchorX == nil and free.anchorY == nil
     and free.resizeLeft._css == mdw.styles.resizeLeft,
     "a float out in the middle is attached to nothing and keeps the plain border")
@@ -2059,6 +2076,10 @@ do
   mdw.updateResizeBorders(a)
   check(a.anchorX == "right" and a.anchorY == nil,
     "parked on the right edge only, a float is attached on that axis alone")
+  check(a.resizeRight._css == mdw.styles.resizeRightAnchored
+    and a.resizeTop._css == mdw.styles.resizeTop
+    and a.resizeTopRight._css == mdw.styles.resizeCornerTRAnchoredX,
+    "so only that edge lights, and only the corner arms running down it")
   local wasRight = mdw.config.rightDockWidth
   mdw.setDockWidth("right", wasRight + 60)
   check(a.container:get_x() + aw == select(3, mdw.floatSnapEdges()),
@@ -2073,6 +2094,276 @@ do
   check(a.anchorX == nil and a.anchorY == nil
     and a.resizeLeft._css == mdw.styles.resizeLeft,
     "dragged clear of every edge it detaches, border and all")
+end
+
+-- 10d5. Sticking: a float snapped AGAINST another travels with it, the way an
+-- edge-attached one travels with its edge. One-way by design - the float on
+-- the far side follows - so a pair can still be pulled apart by dragging the
+-- follower. Every path ends in updateResizeBorders, so that is what the checks
+-- drive, exactly as the drag and the resize do.
+do
+  mdw.floatWidget("KeyGamma")
+  mdw.floatWidget("PreWidget")
+  mdw.floatWidget("LateWidget")
+  local a = mdw.widgets[mdw.widgets["KeyGamma"].stackId]
+  local b = mdw.widgets[mdw.widgets["PreWidget"].stackId]
+  local c = mdw.widgets[mdw.widgets["LateWidget"].stackId]
+  local gap = mdw.config.floatSnapGap
+  local function joined(w, side) return (w.stuckSides or {})[side] == true end
+
+  -- Known sizes and somewhere clear of the area's edges: the column built
+  -- below is then the only relation in play.
+  local function place(w, x, y, width, height)
+    w.container:move(x, y)
+    w.container:resize(width, height)
+    mdw.updateResizeBorders(w)
+  end
+  place(a, 400, 150, 200, 120)
+  place(b, 900, 700, 200, 120)
+  place(c, 300, 800, 200, 120)
+
+  -- Build the column top-down, each dropped where snapFloat would put it.
+  local bx, by = mdw.snapFloat(b, 402, 150 + 120 + gap - 2, 200, 120)
+  check(bx == 400 and by == 150 + 120 + gap,
+    "a float dropped under another lands a floatSnapGap off its bottom")
+  place(b, bx, by, 200, 120)
+  place(c, mdw.snapFloat(c, 400, by + 120 + gap, 200, 120))
+  check(c.container:get_y() == by + 120 + gap, "and a third stacks under that one")
+
+  -- A join is drawn on BOTH borders that meet, and nowhere else.
+  check(joined(b, "top") and not joined(b, "left") and not joined(b, "right"),
+    "the lower float reads as joined on the side it sits against")
+  check(b.resizeTop._css == mdw.styles.resizeTopAnchored
+    and b.resizeLeft._css == mdw.styles.resizeLeft,
+    "so it lights that border and no other")
+  check(joined(a, "bottom") and a.resizeBottom._css == mdw.styles.resizeBottomAnchored,
+    "and the float above lights the border facing it - both sides of a join")
+  check(a.resizeTop._css == mdw.styles.resizeTop,
+    "but not its far side, which is joined to nothing")
+  check(joined(b, "bottom") and joined(c, "top"),
+    "the middle of a column is lit on both, a follower above and an anchor below")
+
+  -- Moving the anchor carries the whole chain, rigidly on both axes.
+  a.container:move(430, 170)
+  mdw.updateResizeBorders(a)
+  check(b.container:get_x() == 430 and b.container:get_y() == 170 + 120 + gap,
+    "moving the anchor carries the float stuck under it, both axes")
+  check(c.container:get_x() == 430
+    and c.container:get_y() == 170 + 120 + gap + 120 + gap,
+    "and the one stuck under THAT - a chain resolves in one pass")
+
+  -- A resize is a move of the edge the follower is against.
+  a.container:resize(200, 160)
+  mdw.updateResizeBorders(a)
+  check(b.container:get_y() == 170 + 160 + gap and b.container:get_x() == 430,
+    "growing the anchor downwards pushes the follower down instead of over it")
+  -- Growing upwards leaves the bottom edge where it was, so nothing follows.
+  local wasB = b.container:get_y()
+  a.container:move(430, 145)
+  a.container:resize(200, 185)
+  mdw.updateResizeBorders(a)
+  check(b.container:get_y() == wasB,
+    "and growing it upwards moves the follower not at all - it tracks the EDGE")
+
+  -- One-way: drag the follower and it comes away on its own.
+  local aY = a.container:get_y()
+  b.container:move(430, 400)
+  mdw.updateResizeBorders(b)
+  check(a.container:get_y() == aY, "dragging the follower does not drag its anchor")
+  check(not joined(b, "top") and b.resizeTop._css == mdw.styles.resizeTop,
+    "and it detaches, border and all")
+  check(c.container:get_y() == 400 + 120 + gap,
+    "though it keeps carrying what was stuck to IT")
+
+  -- Alignment alone is not a join: same x, nowhere near touching.
+  place(b, 430, 700, 200, 120)
+  local wasY = b.container:get_y()
+  a.container:move(430, 200)
+  mdw.updateResizeBorders(a)
+  check(b.container:get_y() == wasY and not joined(b, "top"),
+    "a float merely lined up with another is not joined to it")
+
+  -- The other axis: side by side, the right-hand one follows.
+  place(b, 430 + 200 + gap, 200, 200, 120)
+  check(joined(b, "left") and not joined(b, "top"),
+    "a float against another's right side is joined on that axis alone")
+  check(b.resizeLeft._css == mdw.styles.resizeLeftAnchored
+    and b.resizeTopLeft._css == mdw.styles.resizeCornerTLAnchoredX,
+    "lighting the touching edge and the corner arms along it")
+  a.container:move(500, 260)
+  mdw.updateResizeBorders(a)
+  check(b.container:get_x() == 500 + 200 + gap and b.container:get_y() == 260,
+    "and it travels sideways with the anchor, keeping its own vertical offset")
+
+  -- A stuck float is not a snap target for the anchor it travels with: it sits
+  -- at exactly the gap, so leaving it in would pin the pair in place.
+  local _, carried = mdw.stuckFollowers(a)
+  check(carried[b.name], "the follower is in the anchor's carried set")
+  check((mdw.snapFloat(a, 500 + 3, 260, 200, 120)) == 500 + 3,
+    "so a small drag of the anchor is not pulled back onto it")
+
+  -- An anchor that leaves the float layer takes the attachment with it.
+  mdw.hideWidget("KeyGamma")
+  mdw.reorganizeAllDocks()
+  check(not joined(b, "left") and b.resizeLeft._css == mdw.styles.resizeLeft,
+    "a hidden anchor leaves nothing joined to it")
+  mdw.showWidget("KeyGamma")
+
+  -- The edge is BOSS. A float attached to one never follows on that axis, so
+  -- a panel snapped onto it cannot drag it off - and the pair reverses, the
+  -- attached float leading the one resting on it.
+  local _, _, _, bottomEdge = mdw.floatSnapEdges()
+  place(a, 500, bottomEdge - 120, 200, 120)
+  check(a.anchorY == "bottom", "a float parked on the bottom edge is attached to it")
+  place(b, 500, a.container:get_y() - 120 - gap, 200, 120)
+  check(joined(b, "bottom") and joined(a, "top"),
+    "one resting on top of it is joined, both borders lit")
+  local aY2, bY2 = a.container:get_y(), b.container:get_y()
+  b.container:move(500, 300)
+  mdw.updateResizeBorders(b)
+  check(a.container:get_y() == aY2,
+    "dragging the resting float cannot pull the attached one off its edge")
+
+  -- ...and moving the EDGE takes both, which is the only way a column can
+  -- grow off the bottom of the screen.
+  place(b, 500, bY2, 200, 120)
+  mdw.setPromptBarVisible(false)
+  check(a.container:get_y() ~= aY2 and a.anchorY == "bottom",
+    "hiding the prompt bar moves the bottom edge and the float attached to it")
+  check(b.container:get_y() == a.container:get_y() - 120 - gap,
+    "and the float resting on it comes along - the edge-attached one leads")
+  mdw.setPromptBarVisible(true)
+
+  -- Park them apart again so no later check inherits a relation.
+  place(a, 300, 200, 200, 120)
+  place(b, 900, 600, 200, 120)
+  place(c, 1200, 250, 200, 120)
+end
+
+-- 10d6. Resizing a float snaps its dragged edge to the same lines a dragged
+-- float snaps to, so a panel can be pulled out to exactly the width of the one
+-- above it. The live drag works in deltas, so that is what the checks drive.
+do
+  mdw.floatWidget("KeyGamma")
+  mdw.floatWidget("PreWidget")
+  local a = mdw.widgets[mdw.widgets["KeyGamma"].stackId]
+  local b = mdw.widgets[mdw.widgets["PreWidget"].stackId]
+  local gap, dist = mdw.config.floatSnapGap, mdw.config.floatSnapDistance
+  local function place(w, x, y, width, height)
+    w.container:move(x, y)
+    w.container:resize(width, height)
+    mdw.updateResizeBorders(w)
+  end
+  local function hasLine(lines, v)
+    for _, l in ipairs(lines) do if l == v then return true end end
+    return false
+  end
+
+  -- A wide panel with a narrow one joined under it, left-flush: the case the
+  -- snap exists for.
+  place(a, 400, 200, 300, 120)
+  place(b, 400, 200 + 120 + gap, 180, 120)
+
+  local far = mdw.resizeSnapLines(b, "x", "far")
+  check(hasLine(far, 400 + 300),
+    "a resized edge can land flush with a neighbour's far edge")
+  check(hasLine(far, 400 - gap), "or a floatSnapGap off its near side")
+
+  mdw.resizeDrag.startX, mdw.resizeDrag.startY = 400, b.container:get_y()
+  mdw.resizeDrag.startWidth, mdw.resizeDrag.startHeight = 180, 120
+  local toWidth = 300 - 180
+  check(mdw.snapResizeDelta(b, "x", "far", toWidth - 3) == toWidth,
+    "so a drag that comes close is pulled onto it - the two end up one width")
+  check(mdw.snapResizeDelta(b, "x", "far", toWidth - 3 - dist) == toWidth - 3 - dist,
+    "while one that stays clear is left on the pixel")
+
+  -- The follower below does not move when the width changes, so it stays a
+  -- target: a column gets one width from either end.
+  check(hasLine(mdw.resizeSnapLines(a, "x", "far"), 400 + 180),
+    "a follower below is still a target for a width drag")
+  -- The near edge moves the origin every follower rides on, so its lines would
+  -- track the drag and pin it.
+  check(not hasLine(mdw.resizeSnapLines(a, "x", "near"), 400 + 180 + gap),
+    "but the near edge, which carries it, is offered none of its lines")
+  place(b, 800, 600, 180, 120)
+  check(hasLine(mdw.resizeSnapLines(a, "x", "near"), 800 + 180 + gap),
+    "the same line is back once that float is nobody's follower")
+  check(hasLine(mdw.resizeSnapLines(a, "y", "far"), 600 + 120),
+    "and the other axis offers the same two alignments")
+
+  -- A float joined ON the axis being dragged rides on that very edge.
+  place(b, 400 + 300 + gap, 200, 180, 120)
+  check((mdw.stuckFollowers(a))[1].side == "left",
+    "a float against the right side follows on the x axis")
+  check(not hasLine(mdw.resizeSnapLines(a, "x", "far"), 400 + 300 + gap + 180),
+    "so the edge carrying it offers none of its lines either")
+
+  mdw.config.floatSnapDistance = 0
+  check(mdw.snapResizeDelta(a, "x", "far", 33) == 33,
+    "floatSnapDistance 0 turns resize snapping off with the rest")
+  mdw.config.floatSnapDistance = dist
+
+  place(a, 300, 200, 200, 120)
+  place(b, 900, 600, 200, 120)
+end
+
+-- 10d7. Snap targets are narrowed to the float being aligned against. A panel
+-- in a column with two MISALIGNED panels above it used to get a left-edge
+-- target from each, a few pixels apart, and no way to tell which it landed on.
+do
+  mdw.floatWidget("KeyGamma")
+  mdw.floatWidget("PreWidget")
+  mdw.floatWidget("LateWidget")
+  local top = mdw.widgets[mdw.widgets["KeyGamma"].stackId]
+  local mid = mdw.widgets[mdw.widgets["PreWidget"].stackId]
+  local low = mdw.widgets[mdw.widgets["LateWidget"].stackId]
+  local gap = mdw.config.floatSnapGap
+  local function place(w, x, y, width, height)
+    w.container:move(x, y)
+    w.container:resize(width, height)
+    mdw.updateResizeBorders(w)
+  end
+  local function hasLine(lines, v)
+    for _, l in ipairs(lines) do if l == v then return true end end
+    return false
+  end
+  -- Park every other float clear, so the column is all there is to align to.
+  for _, w in pairs(mdw.widgets) do
+    if w.isStack and not w.docked and w.container
+      and w ~= top and w ~= mid and w ~= low then place(w, 1300, 700, 100, 60) end
+  end
+  -- A column of three sharing a right edge at 700 but with three DIFFERENT
+  -- left edges - so the bottom panel has two candidate left edges above it.
+  place(top, 430, 100, 270, 120)
+  place(mid, 387, 100 + 120 + gap, 313, 120)
+  place(low, 400, 100 + 2 * (120 + gap), 300, 120)
+
+  local joined = mdw.joinedNeighbours(low)
+  check(#joined == 1 and joined[1] == mid,
+    "the bottom panel is joined to the one directly above it, and only that one")
+  local near = mdw.resizeSnapLines(low, "x", "near")
+  check(hasLine(near, 387), "so its left edge is offered the joined panel's line")
+  check(not hasLine(near, 430),
+    "and NOT the misaligned one two panels up - one target, not two")
+
+  -- Joined to nothing, it sees the whole layer again: that is how a column is
+  -- built in the first place.
+  place(low, 700, 600, 300, 120)
+  check(#mdw.joinedNeighbours(low) == 0, "dragged clear it is joined to nothing")
+  local free = mdw.resizeSnapLines(low, "x", "near")
+  check(hasLine(free, 430) and hasLine(free, 387),
+    "so both panels offer their edges again")
+
+  -- The move snap is narrowed the same way.
+  place(low, 400, 100 + 2 * (120 + gap), 300, 120)
+  check((mdw.snapFloat(low, 387 + 2, low.container:get_y(), 300, 120)) == 387,
+    "a move drag lands on the joined panel's edge")
+  check((mdw.snapFloat(low, 432, low.container:get_y(), 300, 120)) == 432,
+    "and is not pulled onto the panel two up, which offers nothing")
+
+  place(top, 300, 200, 200, 120)
+  place(mid, 900, 600, 200, 120)
+  place(low, 1200, 250, 200, 120)
 end
 
 -- 10e. Dock width and occupant height

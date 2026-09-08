@@ -479,10 +479,29 @@ float's - left-to-left and right-to-right so panels line up, right-to-left and
 bottom-to-top so they sit side by side or stacked. Each axis is decided on its
 own; 0 turns it off.
 
-Two floats snapped AGAINST each other keep `cfg.floatSnapGap` (2) between the
-outer borders. Flush at zero, their 1px borders land in adjacent pixel columns
-and read as one thick smeared edge rather than two panels. The line-up
-alignments take no gap - left-to-left is the same edge on both floats.
+WHICH floats offer those edges is narrowed: a float already JOINED to another
+aligns to the float it is joined to and to nothing else, while one joined to
+nothing sees every float on screen. Otherwise a panel with two misaligned
+panels above it gets a left-edge target from each, a few pixels apart, with no
+way to tell which one it landed on. The wide pool is what a column is built
+from; the narrow one is what keeps it tidy once it exists.
+
+RESIZING a float snaps too: the border being dragged lands on the same lines -
+the area's edge, a neighbour's matching edge (flush), or a `cfg.floatSnapGap`
+off its facing one - so a panel can be pulled out to exactly the width of the
+one above it. A corner decides each axis on its own, and the size clamps still
+run after, so a line the clamp cannot reach simply does not take. A float this
+one carries is left out where its line would track the drag: on the axis it is
+joined by, and on any axis when the left or top border is dragged, since that
+moves the origin every follower rides on. A follower BELOW stays a target for a
+width drag, so a column can be given one width from either end.
+
+Two floats snapped AGAINST each other keep `cfg.floatSnapGap` (7) between their
+containers. Each float paints its border OUTSIDE its container, so the gap the
+player sees is that minus two border widths - which is why the figure is
+`cfg.floatSnapInset` plus `cfg.resizeBorderWidth`: a stack of snapped panels
+then sits the same distance apart as the top one sits off the chrome. The
+line-up alignments take no gap - left-to-left is the same edge on both floats.
 
 Against the area's own edges it snaps `cfg.floatSnapInset` (5) short rather
 than flush, so a snapped panel sits a few pixels off the top bar and the window
@@ -492,17 +511,50 @@ other three are being given. The right edge stops short of
 `cfg.mainScrollBarWidth` as well, so a snapped float never covers the console's
 scrollbar.
 
-A float left sitting on one of those edges is ATTACHED to it: it wears a
-lighter resize border, and it travels with the edge when the chrome under it
-moves - a sidebar dragged wider, a sidebar or the prompt bar toggled, a chrome
-bar appearing, the window resized. Each axis attaches on its own, so a panel
-against the right edge follows the sidebar in while keeping its own height off
-the top. Attachment is derived from where the float IS
-(`mdw.updateFloatAnchors`, reported as `anchorX`/`anchorY`), so a float
-restored from the layout file on an edge is attached exactly as a
-just-dragged one is, and dragging it clear detaches it. It applies to a float
-the player put on an edge; a corner ANCHOR (above) places a panel a
-`cfg.floatMargin` off the edges, which is not on them.
+A float left sitting on one of those edges is ATTACHED to it: it travels with
+the edge when the chrome under it moves - a sidebar dragged wider, a sidebar or
+the prompt bar toggled, a chrome bar appearing, the window resized. It says so
+by lighting its resize border ALONG THAT EDGE ALONE, corner arms included - the
+lighter line names the edge the panel will follow, so the sides it is free on
+keep the plain border. Each axis attaches on its own, so a panel against the
+right edge follows the sidebar in while keeping its own height off the top.
+
+Two floats left sitting against each other are JOINED: BOTH light the borders
+where they meet, and one of them travels with the other - whether that one is
+dragged, resized, or carried along by an edge of its own. Exactly one of a
+joined pair follows, and which one is the whole rule:
+
+- A float attached to a chrome edge on that axis NEVER follows on it. **The
+  edge is boss**: nothing a player snaps onto a sidebar-, top- or
+  bottom-attached panel can drag it off its edge. This also reverses the pair,
+  so a panel resting on a bottom-attached one follows it UP when the prompt bar
+  takes the edge with it - the only way a column can grow off the bottom of the
+  screen.
+- Otherwise the float on the FAR side follows, so a column hangs off its top
+  panel and a row off its leftmost. Dragging the anchor takes the group along;
+  dragging a follower pulls that one out of the group, which a symmetric
+  relation would make impossible.
+- Two floats both attached to edges on that axis are both boss; neither
+  follows.
+
+Direction is decided per pair and can never come out both ways, so there are no
+cycles. Joins chain, so a column of three moves as three, and a follower tracks
+the EDGE it is joined to rather than the anchor's origin: growing a panel
+downwards pushes the one below it down, growing it upwards leaves it alone. On
+the other axis the follower keeps its own offset, so an aligned column stays
+aligned - unless an edge holds it there, in which case only the joined axis
+moves. Only the TOUCHING snaps join - two panels merely lined up left-to-left
+are aligned, not joined - and the extents have to overlap on the other axis, so
+panels at opposite corners never catch each other.
+
+Both relations are derived from where the floats ARE
+(`mdw.refreshFloatAttachments` runs one pass over the float layer on every
+geometry change), never stored: a layout restored from file is joined exactly
+as a just-dragged pair is, and dragging a float clear of everything detaches it
+with nothing to invalidate. Edge attachment is reported as `anchorX`/`anchorY`, the joined sides as the
+`stuckSides` set. Attachment applies to a float the player put on an edge; a
+corner ANCHOR (above) places a panel a `cfg.floatMargin` off the edges, which
+is not on them.
 
 Anchored placement is exact - no cascade. A centred float steps down-and-left
 past any float already there so titles stay visible, because a centred reveal

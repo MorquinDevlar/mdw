@@ -136,10 +136,12 @@ function mdw.buildStyles()
   -- carry one border line; corners carry the L of the two edges meeting there
   -- (subtle by default so the widget border reads as continuous, accent on hover).
   --
-  -- Each set is built twice. The "Anchored" variant, in a lighter grey, is
-  -- what a float sitting on an edge of the main console area wears: that float
-  -- travels with the edge (mdw.repositionAnchoredFloats), which is invisible
-  -- until the chrome moves, so the border is where it is announced.
+  -- The "Anchored" variants, in a lighter grey, are what a float sitting on an
+  -- edge of the main console area wears ALONG THAT EDGE ONLY: the float travels
+  -- with the edge (mdw.repositionAnchoredFloats), which is invisible until the
+  -- chrome moves, so the border is where it is announced - and lighting only
+  -- the attached side says WHICH edge it is going to follow. A corner has an
+  -- arm on each axis, so it needs the two lit separately as well.
   local bw = cfg.resizeBorderWidth
   local cssAnchored = mdw.rgbToCss(mdw.lightenRgb(c.splitter, 45))
   for _, variant in ipairs({ { "", cssSplitter }, { "Anchored", cssAnchored } }) do
@@ -151,14 +153,23 @@ function mdw.buildStyles()
         QLabel:hover { background-color: transparent; border-%s: %dpx solid %s; }
       ]], side, bw, cssLine, side, bw, cssSplitterHover)
     end
-    for corner, edges in pairs({ TL = { "top", "left" }, TR = { "top", "right" },
-                                 BL = { "bottom", "left" }, BR = { "bottom", "right" } }) do
-      local borders = string.format("border-%s: %dpx solid %%s; border-%s: %dpx solid %%s;",
-        edges[1], bw, edges[2], bw)
-      mdw.styles["resizeCorner" .. corner .. suffix] = string.format(
+  end
+  -- Corner arms are named for the axis that lights them - "AnchoredY" is the
+  -- top/bottom arm (anchorY), "AnchoredX" the left/right one (anchorX), plain
+  -- "Anchored" both - so mdw.resizeBorderStyle can read the suffix straight
+  -- off the two anchor fields.
+  for corner, edges in pairs({ TL = { "top", "left" }, TR = { "top", "right" },
+                               BL = { "bottom", "left" }, BR = { "bottom", "right" } }) do
+    local borders = string.format("border-%s: %dpx solid %%s; border-%s: %dpx solid %%s;",
+      edges[1], bw, edges[2], bw)
+    for _, lit in ipairs({ { "", false, false }, { "AnchoredY", true, false },
+                           { "AnchoredX", false, true }, { "Anchored", true, true } }) do
+      mdw.styles["resizeCorner" .. corner .. lit[1]] = string.format(
         "QLabel { background-color: transparent; " .. borders .. " }\n"
         .. "QLabel:hover { background-color: transparent; " .. borders .. " }",
-        cssLine, cssLine, cssSplitterHover, cssSplitterHover)
+        lit[2] and cssAnchored or cssSplitter,
+        lit[3] and cssAnchored or cssSplitter,
+        cssSplitterHover, cssSplitterHover)
     end
   end
 
@@ -1806,12 +1817,40 @@ function mdw.widgetText(name)
   return lines
 end
 
---- The stylesheet one resize border wears: the lighter "attached" set while
--- the float is sitting on an edge of the main console area, the ordinary set
--- otherwise.
+-- Every side a border can light on, in a fixed order so the style key below
+-- is stable.
+local BORDER_SIDES = { "left", "right", "top", "bottom" }
+
+--- The sides of a float whose border lights, as a set: an edge of the main
+-- console area it is attached to (anchorX/anchorY), plus every side it is
+-- joined to another float by (stuckSides - the side it follows something by
+-- AND the side something follows it by, since a join is drawn on both borders
+-- that meet). A set rather than one side per axis, because the middle panel of
+-- a column is a follower on top and an anchor underneath.
+function mdw.attachedSides(widget)
+  local sides = {}
+  for side in pairs(widget.stuckSides or {}) do sides[side] = true end
+  if widget.anchorX then sides[widget.anchorX] = true end
+  if widget.anchorY then sides[widget.anchorY] = true end
+  return sides
+end
+
+--- The stylesheet one resize border wears: the lighter "attached" set on the
+-- borders that RUN ALONG an attached side, the ordinary set everywhere else.
+-- Only those sides light, because the highlight marks where this float is
+-- joined to something - a ring round the whole float says nothing. A corner
+-- lights per arm, so the lit line runs the full length of the joined side and
+-- stops at the perpendicular one.
 function mdw.resizeBorderStyle(widget, spec)
-  local attached = widget and not widget.docked and (widget.anchorX or widget.anchorY)
-  return mdw.styles[spec.style .. (attached and "Anchored" or "")]
+  if not widget or widget.docked then return mdw.styles[spec.style] end
+  local lit = mdw.attachedSides(widget)
+  if spec.corner then
+    local y, x = lit[spec.sideY], lit[spec.sideX]
+    local suffix = (y and x and "Anchored") or (y and "AnchoredY")
+      or (x and "AnchoredX") or ""
+    return mdw.styles[spec.style .. suffix]
+  end
+  return mdw.styles[spec.style .. (lit[spec.edge] and "Anchored" or "")]
 end
 
 --- Re-apply a float's resize-border stylesheets when its attachment changes.
@@ -1819,8 +1858,14 @@ end
 -- a drag, and eight setStyleSheet calls per move is a stutter.
 function mdw.refreshResizeBorderStyles(widget)
   if not widget or not widget.resizeLeft then return end
-  local key = widget.docked and "docked"
-    or ((widget.anchorX or "-") .. (widget.anchorY or "-"))
+  local key = "docked"
+  if not widget.docked then
+    local lit = mdw.attachedSides(widget)
+    key = ""
+    for _, side in ipairs(BORDER_SIDES) do
+      key = key .. (lit[side] and side or "-")
+    end
+  end
   if widget._borderStyleKey == key then return end
   widget._borderStyleKey = key
   for _, spec in ipairs(mdw.resizeBorders or {}) do

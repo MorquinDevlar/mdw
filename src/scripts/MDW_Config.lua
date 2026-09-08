@@ -115,11 +115,15 @@ mdw.config = {
   -- under the header/top bars or against the main console's scrollbar.
   floatSnapInset = 5,
   -- Gap left between two floats snapped AGAINST each other (right-to-left,
-  -- bottom-to-top). Zero would put their 1px borders in adjacent pixel
-  -- columns, which reads as one thick smeared edge rather than two panels;
-  -- this is the clearance that keeps both borders visible. Flush alignments
+  -- bottom-to-top), measured between their CONTAINERS. Both floats paint a
+  -- resizeBorderWidth line outside its container, so the clearance the player
+  -- sees is this minus 2 * resizeBorderWidth - which is why the figure is
+  -- floatSnapInset + resizeBorderWidth: that leaves the same visible gap
+  -- between two stacked floats as floatSnapInset leaves between a float and
+  -- the edge it is snapped to (inset - resizeBorderWidth), so a column of
+  -- snapped panels is evenly spaced from the chrome down. Flush alignments
   -- (left-to-left, right-to-right) take no gap - they are the same edge.
-  floatSnapGap = 2,
+  floatSnapGap = 7,
   dockSplitterWidth = 4, -- Width of vertical dock edge splitters (resize handles)
   separatorHeight = 2,   -- Height of horizontal separator lines (header/prompt)
   dropIndicatorHeight = 2, -- Height of drop target indicators

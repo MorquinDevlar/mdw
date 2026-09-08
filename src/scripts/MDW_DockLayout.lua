@@ -781,6 +781,9 @@ end
 function mdw.reorganizeAllDocks()
   mdw.reorganizeDock("left")
   mdw.reorganizeDock("right")
+  -- The tail of every placement change, which is where a float can have just
+  -- left the float layer and stopped being something to stick to.
+  mdw.refreshFloatAttachments()
 end
 
 ---------------------------------------------------------------------------

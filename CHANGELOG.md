@@ -10,6 +10,15 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Added
+- Floats snap to each other and travel together; an edge-attached float leads.
+- Resizing a float snaps its dragged border to nearby floats and the area edges.
+
+### Changed
+- A joined float snaps only against the float it is joined to.
+- An attached float lights only the border on the side it is attached to.
+- `mdw.config.floatSnapGap` is 7 (was 2), matching the edge clearance.
+
 ## 0.9.3 - 2026-09-07
 
 ### Added
