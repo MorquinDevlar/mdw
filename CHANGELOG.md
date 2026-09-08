@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.4 - 2026-09-08
+
 ### Added
 - Floats snap to each other and travel together; an edge-attached float leads.
 - Resizing a float snaps its dragged border to nearby floats and the area edges.
