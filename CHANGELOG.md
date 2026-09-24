@@ -10,6 +10,8 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+## 0.9.5 - 2026-09-24
+
 ### Changed
 - `mdw.setWidgetRows` and `mdw.setPromptGaugeValue` no longer reach Qt for a
   value, label or row position that has not changed, so repainting on every
