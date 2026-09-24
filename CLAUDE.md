@@ -78,7 +78,7 @@ framework side of that bargain, all deliberate:
   defaults; the player's persisted choices win.
 - Every `mdw.*` field a consumer may pre-seed uses `x = x or {}` in Config.
   Breaking any of this breaks load-order/install-order freedom for every
-  game package (the reference consumer is the sibling `../mdw_ui` repo).
+  game package (the reference consumer is the sibling `../WillowdaleMudletUI` repo).
 - **Ownership stamping**: `runReadyCallbacks` sets `mdw._currentOwner`
   around each callback; widgets, stacks, bars, tracked elements, handlers,
   and the prompt-bar declarations created inside carry that key.
@@ -208,7 +208,7 @@ active member (`refreshWidgetContent`).
 at the new wrap width - Mudlet consoles never re-wrap old content. The buffer
 CANNOT reproduce clickable links; render-from-state consumers instead write
 directly to `widget.content` and bind their renderer as the widget's instance
-`reflow` (pattern documented in `../mdw_ui`). `maxEchoBuffer` caps replay cost
+`reflow` (pattern documented in `../WillowdaleMudletUI`). `maxEchoBuffer` caps replay cost
 and history survival together.
 
 ## Lifecycle discipline
@@ -261,3 +261,20 @@ docs check, never bumps the version, and can hand off to the release script.
 Comments explain WHY, not what - the constraint the code cannot show (a Mudlet
 quirk, an ordering dependency, a contract). Don't extract a function for
 something just as clear written inline.
+
+## Developing with agents
+
+- The main session plans, designs and reviews, whatever model it runs on (Fable
+  5.1 by default). Code is written by the `implementer` agent
+  (`.claude/agents/implementer.md`, `model: opus`, effort `xhigh`), started with
+  the Agent tool and a self-contained brief: the agreed plan, the files
+  involved, the rules of this file that bear on it, and what done means. The
+  agent does not see the conversation.
+- Exceptions the main session does itself: trivial edits (a few lines, a config
+  or data tweak, a doc fix), and reading, planning and review of any size. A
+  main session that itself runs Opus may write the code directly, since the code
+  is Opus's either way.
+- The main session reviews the agent's change before anything is reported done,
+  stages by explicit path and commits it; the agent never commits, stages,
+  pushes or deploys. `CHANGELOG.md` and the version stay with the main session
+  too - see `/commit` and Releases above.
