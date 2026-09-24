@@ -283,7 +283,8 @@ end
 -- owns content, styles, and values. Renderers may call setWidgetRows on
 -- every GMCP push: rows are diffed by their (type, id) sequence and updated
 -- in place when unchanged, so the per-combat-beat path never recreates Qt
--- elements.
+-- elements - and a value, style or position that did not change never
+-- reaches Qt at all.
 ---------------------------------------------------------------------------
 
 local function rowHeight(cfg, row)
@@ -548,7 +549,12 @@ local function applyRowContent(rec, row)
     else
       local cur, max = tonumber(row.value) or 0, tonumber(row.max) or 0
       if max <= 0 then max = 1 end
-      rec.el:setValue(cur, max, row.text)
+      -- Skipped when nothing moved, for the slider's reason: a combat panel
+      -- repaints every gauge on every push, and most of them have not moved.
+      if cur ~= rec.value or max ~= rec.max or row.text ~= rec.text then
+        rec.value, rec.max, rec.text = cur, max, row.text
+        rec.el:setValue(cur, max, row.text)
+      end
     end
   else
     -- Restyles are string-compared like the gauges': an unchanged css
@@ -624,6 +630,20 @@ function mdw.setWidgetRows(name, rows)
   end
 end
 
+--- Move and size one row element, unless it already sits exactly there.
+-- Renderers repaint their rows on every GMCP push, and each move or resize
+-- reaches Qt once per label underneath - three for a gauge - so a combat beat
+-- was dozens of calls putting every row where it already was. The memo is the
+-- geometry this function last applied, relative to the container (Geyser
+-- carries children along when the container itself moves), which holds only
+-- as long as nothing else moves a row element.
+local function placeRowElement(el, x, y, w, h)
+  if el._mdwX == x and el._mdwY == y and el._mdwW == w and el._mdwH == h then return end
+  el._mdwX, el._mdwY, el._mdwW, el._mdwH = x, y, w, h
+  el:move(x, y)
+  el:resize(w, h)
+end
+
 --- Position the declared rows inside the widget's content area.
 function mdw.layoutWidgetRows(widget)
   local rows = widget and widget._rowDefs
@@ -655,12 +675,8 @@ function mdw.layoutWidgetRows(widget)
           elWidth = width - rightWidth
           rightX = cfg.contentPaddingLeft + elWidth
         end
-        rec.el:move(cfg.contentPaddingLeft, y)
-        rec.el:resize(elWidth, h)
-        if rec.right then
-          rec.right:move(rightX, y)
-          rec.right:resize(rightWidth, h)
-        end
+        placeRowElement(rec.el, cfg.contentPaddingLeft, y, elWidth, h)
+        if rec.right then placeRowElement(rec.right, rightX, y, rightWidth, h) end
         if rec.overflowed then
           rec.overflowed = nil
           rec.el:show()

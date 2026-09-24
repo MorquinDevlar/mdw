@@ -285,12 +285,17 @@ end
 
 --- Set one gauge's value and label text. Safe anytime: a gauge that is not
 -- up (torn down mid-update, or never declared) is silently skipped, so GMCP
--- handlers need no guards of their own.
+-- handlers need no guards of their own. A call that changes nothing is
+-- skipped too, like setPromptGaugeStyle's: consumers repaint the whole row
+-- from payloads arriving ten times a second, and Geyser re-echoes the label
+-- on every setValue. The memo rides the gauge, so a rebuilt row starts clean.
 function mdw.setPromptGaugeValue(id, current, max, text)
   local gauge = mdw.promptGauges[id]
   if not gauge then return end
   current, max = tonumber(current) or 0, tonumber(max) or 0
   if max <= 0 then max = 1 end
+  if current == gauge._mdwValue and max == gauge._mdwMax and text == gauge._mdwText then return end
+  gauge._mdwValue, gauge._mdwMax, gauge._mdwText = current, max, text
   gauge:setValue(current, max, text)
 end
 

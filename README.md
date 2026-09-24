@@ -215,9 +215,10 @@ mdw.setPromptGaugeValue("hp", vitals.hp, vitals.maxhp, "HP " .. vitals.hp)
 mdw.setPromptGaugeStyle("hp", lowHpFillCss)  -- e.g. color bands; nil keeps a part
 ```
 
-A `setPromptGaugeStyle` call whose stylesheets all match what the gauge is
-already wearing is skipped, so feeding it from every payload costs nothing
-between band changes (the same rule as the widget rows).
+A `setPromptGaugeValue` call whose value, maximum and label all match what the
+gauge already shows is skipped, and so is a `setPromptGaugeStyle` call whose
+stylesheets all match what it is already wearing - so feeding both from every
+payload costs nothing between changes (the same rule as the widget rows).
 
 `mdw.setPromptGauges(nil)` removes the row (call it from your package's
 uninstall handler). The prompt bar grows if needed so the row plus one line
@@ -297,10 +298,10 @@ hand. The first repaint after the release applies whatever the game declares.
 
 Call it from your renderer on every GMCP push: rows are diffed by their
 `(type, id)` sequence and updated in place when unchanged, so per-combat-beat
-repaints never recreate Qt elements (stylesheets restyle only when the
-strings change). MDW owns layout, resize, tab-switch visibility, z-order,
-and teardown. Rows that would overflow the widget are hidden. Pass nil to
-clear.
+repaints never recreate Qt elements - and a value, stylesheet or row position
+is only re-applied when it changed. MDW owns layout, resize, tab-switch
+visibility, z-order, and teardown. Rows that would overflow the widget are
+hidden. Pass nil to clear.
 
 ### Settings Menus (Checkbox Toggles)
 

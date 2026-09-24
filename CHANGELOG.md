@@ -10,6 +10,11 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Changed
+- `mdw.setWidgetRows` and `mdw.setPromptGaugeValue` no longer reach Qt for a
+  value, label or row position that has not changed, so repainting on every
+  GMCP push costs nothing between changes.
+
 ## 0.9.4 - 2026-09-08
 
 ### Added

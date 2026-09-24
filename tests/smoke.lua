@@ -50,7 +50,10 @@ function Element:get_x() return self._x < 0 and WIN_W + self._x or self._x end
 function Element:get_y() return self._y < 0 and WIN_H + self._y or self._y end
 function Element:get_width() return self._w end
 function Element:get_height() return self._h end
+-- Counted: the row layout skips a placement that changes nothing, and the
+-- only way to see a skip is that Geyser was never reached.
 function Element:move(x, y)
+  self._moves = (self._moves or 0) + 1
   if x then self._x = x end
   if y then self._y = y end
 end
@@ -164,6 +167,8 @@ function Geyser.Gauge:new(props, container)
     gauge.front:resize(gauge._w * frac, gauge._h)
   end
   function g.setValue(gauge, cur, max, text)
+    -- Counted for the same reason as setStyleSheet below.
+    gauge._valueCalls = (gauge._valueCalls or 0) + 1
     if max ~= nil and max <= 0 then return nil end
     gauge._value, gauge._max = cur, max
     if text then gauge.text._echoed = { text } end
@@ -1038,6 +1043,17 @@ check(hpGauge.front._css == "background-color: red;" and hpGauge.back._css == "b
 mdw.setPromptGaugeValue("hp", 50, 200, "HP 50/200")
 check(hpGauge._value == 50 and hpGauge._max == 200 and hpGauge.text._echoed[1] == "HP 50/200",
   "setPromptGaugeValue drives the gauge and its label")
+-- The same payload rate that makes restyles skip (below) makes values skip:
+-- a consumer repaints the whole row per push, and Geyser re-echoes the label
+-- on every setValue.
+do
+  local valueCalls = hpGauge._valueCalls
+  mdw.setPromptGaugeValue("hp", 50, 200, "HP 50/200")
+  check(hpGauge._valueCalls == valueCalls, "a prompt-gauge value that changes nothing is skipped")
+  mdw.setPromptGaugeValue("hp", 50, 200, "HP 50/200 (+1)")
+  check(hpGauge._valueCalls == valueCalls + 1 and hpGauge.text._echoed[1] == "HP 50/200 (+1)",
+    "a changed label alone still lands")
+end
 mdw.setPromptGaugeValue("hp", 50, 0, "HP 50/0")
 check(hpGauge._max == 1, "a non-positive max is clamped before Geyser would refuse it")
 mdw.setPromptGaugeStyle("hp", "background-color: amber;")
@@ -1099,6 +1115,25 @@ check(H.labels["MDW_Items_Row_hdr"] == hdrEl and items._rows["hp"].el == hpRowGa
 check(hdrEl._echoed[#hdrEl._echoed]:find("ENEMIES", 1, true) ~= nil, "text row updated in place")
 check(hpRowGauge._value == 20 and hpRowGauge.front._css == "background-color: red;",
   "gauge row revalued and restyled in place")
+-- Renderers repaint their rows on every GMCP push, so a repaint that changes
+-- nothing must not reach Geyser: no value set again, no row moved or resized
+-- to where it already is.
+do
+  local rowsNow = {
+    { id = "hdr", type = "text", text = "<136,136,136>ENEMIES:" },
+    { id = "hp", type = "gauge", value = 20, max = 100, text = "HP 20/100",
+      front = "background-color: red;", back = "background-color: darkgreen;" },
+  }
+  local valueCalls, hdrMoves, hpMoves = hpRowGauge._valueCalls, hdrEl._moves, hpRowGauge._moves
+  mdw.setWidgetRows("Items", rowsNow)
+  check(hpRowGauge._valueCalls == valueCalls, "an unchanged gauge row is not re-valued")
+  check(hdrEl._moves == hdrMoves and hpRowGauge._moves == hpMoves,
+    "and no row is moved to where it already sits")
+  rowsNow[2].value, rowsNow[2].text = 21, "HP 21/100"
+  mdw.setWidgetRows("Items", rowsNow)
+  check(hpRowGauge._valueCalls == valueCalls + 1 and hpRowGauge._value == 21
+    and hpRowGauge.text._echoed[1] == "HP 21/100", "a changed value still lands")
+end
 local savedItemsH = items.container._h
 items.container._h = 30
 mdw.layoutWidgetRows(items)
