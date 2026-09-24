@@ -837,6 +837,9 @@ local ok, why = mdw.swapPackage("MyGameUI", downloadedFile)
 if not ok then
   -- known immediately, and MDW is still here to say it
   cecho("<red>Update failed: " .. why .. "\n")
+elseif why then
+  -- "retrying" or "queued": Mudlet is saving the profile, and the new copy
+  -- announces itself on sysInstallPackage once it lands
 end
 ```
 
@@ -853,6 +856,16 @@ and hand back what Mudlet actually reported. Verifying the file is still yours
 - only you know what a valid build of your package looks like - and MDW
 refuses to swap itself, since that is the very self-swap this avoids. Your
 package moves MDW; MDW moves your package. Neither ever has to move itself.
+
+One thing stops the two halves happening at once. Mudlet refuses every
+uninstall while it saves the profile, and Mudlet 5 queues every install behind
+the save - and installing or removing a package is what starts one, so a swap
+made a second after installing MDW lands in it. `swapPackage` checks Mudlet's
+package list instead of trusting either call: a refused uninstall is retried
+after 1, 2, 4 and 8 seconds, and a queued install lands when the save ends. It
+returns `true` plus `"retrying"` or `"queued"` for those, and the new copy
+announces itself on `sysInstallPackage` as usual. A retry that still fails is
+reported by MDW, with the path of the file to install by hand.
 
 Everything the uninstall reaper does still applies: your creations are reaped
 by ownership stamp inside the uninstall, and your reinstall re-seeds its

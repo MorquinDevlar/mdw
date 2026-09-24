@@ -10,6 +10,12 @@ verbatim as the GitHub release notes.
 
 ## Unreleased
 
+### Fixed
+- `mdw.swapPackage` no longer reports success for a swap Mudlet refused: while a
+  profile save blocks the uninstall it retries for up to 15 seconds, and it
+  returns `"retrying"` or `"queued"` as a second value while the swap is still
+  pending.
+
 ## 0.9.5 - 2026-09-24
 
 ### Changed

@@ -1924,8 +1924,75 @@ function mdw.cleanupGame(owner)
   mdw.resumeLayoutSaves(false)
 end
 
+-- Seconds between swap attempts while Mudlet will not uninstall the package.
+-- Mudlet refuses EVERY uninstall while it saves the profile, returning nil and
+-- raising nothing (Host::uninstallPackage), and installing or removing a
+-- package is itself what starts a save - so a swap made a second after an MDW
+-- install, which is exactly what a consumer's MDW-first update does, lands in
+-- one. A save takes a moment; fifteen seconds of refusals is something else,
+-- and the ladder runs out rather than waiting on it.
+local SWAP_RETRY_DELAYS = { 1, 2, 4, 8 }
+
+--- Is `name` an installed package right now? nil when this Mudlet cannot say
+-- (getPackages is 4.12+), which the swap reads as "take the calls at their word".
+local function packageInstalled(name)
+  if type(getPackages) ~= "function" then return nil end
+  local ok, list = pcall(getPackages)
+  if not ok or type(list) ~= "table" then return nil end
+  for _, held in ipairs(list) do
+    if held == name then return true end
+  end
+  return false
+end
+
+--- One swap attempt - see mdw.swapPackage for what it returns. `step` indexes
+-- SWAP_RETRY_DELAYS for the attempt after this one.
+local function swapAttempt(name, path, step)
+  -- A registered game package's creations are reaped by ownership stamp inside
+  -- this call (onUninstall below), and its reinstall re-seeds the
+  -- registrations and late-joins - the documented consumer pattern.
+  mdw.debugEcho("swapPackage: uninstalling %s", name)
+  -- Checked, not trusted. A refused uninstall leaves the old package in place,
+  -- and an install offered over it is refused in turn - and under Mudlet 5 that
+  -- refusal comes after the save, from an install Mudlet queued and already
+  -- answered true for, when nobody is listening any more.
+  if not uninstallPackage(name) and packageInstalled(name) then
+    local delay = SWAP_RETRY_DELAYS[step]
+    if not delay then return false, "Mudlet would not uninstall " .. name end
+    mdw.debugEcho("swapPackage: Mudlet will not uninstall %s yet (saving the profile?) - retrying in %ds",
+      name, delay)
+    tempTimer(delay, function()
+      local ok, why = swapAttempt(name, path, step + 1)
+      -- The caller returned long ago, so a failure from here on is ours to say.
+      if not ok then
+        mdw.notify(string.format("Could not replace %s: %s. The new package is saved at %s",
+          name, why, path))
+      end
+    end)
+    return true, "retrying"
+  end
+  mdw.debugEcho("swapPackage: installing %s from %s", name, path)
+  if not installPackage(path) then
+    mdw.debugEcho("swapPackage: Mudlet REFUSED the install of %s", name)
+    return false, "Mudlet refused the install"
+  end
+  -- Mudlet 5 QUEUES an install that arrives while it saves the profile and
+  -- answers true at once: the package lands, and says so on
+  -- sysInstallPackage, when the save ends.
+  if packageInstalled(name) == false then
+    mdw.debugEcho("swapPackage: the install of %s is queued behind a profile save", name)
+    return true, "queued"
+  end
+  mdw.debugEcho("swapPackage: %s installed, Mudlet accepted", name)
+  -- Nothing to re-assert here. The package comes back through onInstall below,
+  -- on sysInstallPackage - the event that means Mudlet has FINISHED installing
+  -- it. Doing it at this point instead would run before the new copy's scripts
+  -- had re-seeded their registration, find nothing registered, and do nothing.
+  return true
+end
+
 --- Replace an installed package with a new build of it: uninstall, then
---- install, in one synchronous call, on behalf of the package being replaced.
+--- install, on behalf of the package being replaced.
 --
 -- WHY this belongs to MDW rather than to the package doing the updating: a
 -- package cannot reliably swap ITSELF. The code running the swap lives inside
@@ -1945,9 +2012,17 @@ end
 -- avoid. A package built on MDW is the right thing to move MDW - that
 -- direction already works for the same reason, in reverse.
 --
+-- Usually both halves happen inside this call. While Mudlet saves the profile
+-- they cannot: the swap is retried on SWAP_RETRY_DELAYS until Mudlet lets go
+-- of the old package, and an install Mudlet queues behind a save lands when
+-- the save ends. Either way the new package announces itself on
+-- sysInstallPackage, and a retry that fails in the end is reported here.
+--
 -- @param name  installed package name, as Mudlet knows it
 -- @param path  package file to install in its place
--- @return true, or false plus a short reason
+-- @return true when installed; true plus "retrying" (Mudlet would not
+--   uninstall yet, a later attempt is armed) or "queued" (the install waits on
+--   a profile save); or false plus a short reason
 function mdw.swapPackage(name, path)
   if type(name) ~= "string" or name == "" then return false, "no package name" end
   if type(path) ~= "string" or path == "" then return false, "no package file" end
@@ -1957,22 +2032,7 @@ function mdw.swapPackage(name, path)
   local fh = io.open(path, "rb")
   if not fh then return false, "package file is not readable" end
   fh:close()
-  -- A registered game package's creations are reaped by ownership stamp inside
-  -- this call (onUninstall below), and its reinstall re-seeds the
-  -- registrations and late-joins - the documented consumer pattern.
-  mdw.debugEcho("swapPackage: uninstalling %s", name)
-  uninstallPackage(name)
-  mdw.debugEcho("swapPackage: installing %s from %s", name, path)
-  if not installPackage(path) then
-    mdw.debugEcho("swapPackage: Mudlet REFUSED the install of %s", name)
-    return false, "Mudlet refused the install"
-  end
-  mdw.debugEcho("swapPackage: %s installed, Mudlet accepted", name)
-  -- Nothing to re-assert here. The package comes back through onInstall below,
-  -- on sysInstallPackage - the event that means Mudlet has FINISHED installing
-  -- it. Doing it at this point instead would run before the new copy's scripts
-  -- had re-seeded their registration, find nothing registered, and do nothing.
-  return true
+  return swapAttempt(name, path, 1)
 end
 
 --- Handle package uninstall.

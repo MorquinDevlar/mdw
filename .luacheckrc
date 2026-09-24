@@ -65,6 +65,9 @@ read_globals = {
   "setLabelWheelCallback",
   "tempTimer",
   "uninstallPackage", "installPackage",
+  -- mdw.swapPackage checks the package list rather than trusting the calls
+  -- above (Mudlet 4.12+, hence the guard at the call site).
+  "getPackages",
   io = { fields = { "exists" } },
   table = { fields = { "save", "load" } },
 }

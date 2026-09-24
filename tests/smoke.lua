@@ -255,21 +255,43 @@ function deleteNamedEventHandler(user, name)
   for _, tbl in pairs(H.handlers) do tbl[name] = nil end
 end
 function tempTimer(t, fn) H.timers[#H.timers + 1] = fn end
+-- Mudlet's package list, when a test models one. nil answers getPackages the
+-- way a Mudlet without it does, and keeps the calls below as permissive as
+-- they always were.
+PACKAGES = nil
+INSTALL_NAME = nil -- the package name the file a test installs carries
+-- Mudlet refuses every uninstall while it saves the profile (nil back, no
+-- event), and Mudlet 5 queues every install behind the save, answering true
+-- at once. Installing or removing a package is what starts a save.
+SAVING = false
+QUEUED = {}
+function getPackages() return PACKAGES end
 UNINSTALLED = {}
 function uninstallPackage(name)
   UNINSTALLED[#UNINSTALLED + 1] = name
+  if SAVING then return nil end
+  for i, held in ipairs(PACKAGES or {}) do
+    if held == name then table.remove(PACKAGES, i) break end
+  end
   raiseEvent("sysUninstallPackage", name)
+  return true
 end
 INSTALLED = {}
 INSTALL_REFUSES = false -- set to model Mudlet declining the install
 INSTALL_SCRIPTS = nil -- a test supplies what the package's scripts would do
 function installPackage(path)
   INSTALLED[#INSTALLED + 1] = path
+  if SAVING then
+    QUEUED[#QUEUED + 1] = path
+    return true
+  end
   -- Real Mudlet RUNS a package's scripts as part of installing it, before this
   -- returns - which is how a consumer re-seeds its onReady and late-joins.
   -- Recording only the call meant the suite never saw that half.
   if INSTALL_SCRIPTS then INSTALL_SCRIPTS(path) end
-  return not INSTALL_REFUSES
+  if INSTALL_REFUSES then return false end
+  if PACKAGES and INSTALL_NAME then PACKAGES[#PACKAGES + 1] = INSTALL_NAME end
+  return true
 end
 local function cbSet(kind)
   return function(name, fn)
@@ -1732,6 +1754,61 @@ check(swapOk == false and swapWhy:find("readable", 1, true) ~= nil,
   "and refuses a file it cannot read, before anything is uninstalled")
 check(#UNINSTALLED == uninstallsBeforeGuards,
   "neither guard uninstalled anything")
+
+-- 7a3. A swap made while Mudlet saves the profile. Installing or removing a
+-- package starts a save, so a consumer that installs MDW and then swaps itself
+-- a second later - its MDW-first update - lands in one. The uninstall is
+-- refused with nothing raised, and an install offered over the copy Mudlet
+-- still holds is refused in turn; under Mudlet 5 that refusal came after the
+-- save, from an install already answered true, and the player saw the update
+-- stop halfway with nothing said. So the swap checks the package list and
+-- waits the save out.
+do
+  local saveFile = os.tmpname()
+  local saveFh = assert(io.open(saveFile, "wb")); saveFh:write("PK-not-really"); saveFh:close()
+  flushTimers()
+  PACKAGES, INSTALL_NAME = { "MDW", "SwapGameUI" }, "SwapGameUI"
+  SAVING = true
+  local installsBeforeSave = #INSTALLED
+  local ok, note = mdw.swapPackage("SwapGameUI", saveFile)
+  check(ok == true and note == "retrying",
+    "a swap Mudlet will not uninstall yet says it is retrying")
+  check(#INSTALLED == installsBeforeSave,
+    "and offers no install over the copy Mudlet still holds")
+  SAVING = false
+  flushTimers()
+  check(INSTALLED[#INSTALLED] == saveFile and #INSTALLED == installsBeforeSave + 1,
+    "once the save is over, the retry swaps it")
+  -- A save that starts between the two halves queues the install instead.
+  local realUninstall = uninstallPackage
+  uninstallPackage = function(name)
+    local removed = realUninstall(name)
+    SAVING = true
+    return removed
+  end
+  ok, note = mdw.swapPackage("SwapGameUI", saveFile)
+  uninstallPackage = realUninstall
+  check(ok == true and note == "queued" and QUEUED[#QUEUED] == saveFile,
+    "an install Mudlet queued behind a save is reported as queued, not as done")
+  SAVING = false
+  -- A refusal that outlasts the ladder is not a save. The caller returned long
+  -- before, so MDW says it, with the package the player can install by hand.
+  PACKAGES = { "MDW", "SwapGameUI" }
+  SAVING = true
+  local said = {}
+  local realDecho = decho
+  decho = function(text) said[#said + 1] = tostring(text) end
+  mdw.swapPackage("SwapGameUI", saveFile)
+  for _ = 1, 4 do flushTimers() end
+  decho = realDecho
+  SAVING = false
+  local report = table.concat(said)
+  check(report:find("Could not replace SwapGameUI", 1, true) ~= nil
+    and report:find(saveFile, 1, true) ~= nil,
+    "a refusal that outlasts the retries is reported, with the saved package's path")
+  PACKAGES, INSTALL_NAME, QUEUED = nil, nil, {}
+  os.remove(saveFile)
+end
 
 -- 7b. Floating-group border resize must reflow the active member on release
 -- (regression found by the verification workflow: stacks have no :reflow).
